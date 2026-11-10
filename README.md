@@ -7,3 +7,4 @@ RPG / simulador de vida en un único HTML: reglas D&D 2024, sprites pixel-art en
 - `.github/workflows/pages.yml` — construye y publica en GitHub Pages en cada push a `main`
 
 Construir en local: `python3 web/build.py` y abrir `web/index.html`.
+
