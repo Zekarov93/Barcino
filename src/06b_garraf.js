@@ -1,0 +1,33 @@
+// ===================== ZONA NUEVA: GARRAF (aldea costera, faro y cala de contrabandistas) =====================
+ZINFO.garraf={n:'Garraf y la Cala',biome:'coast',settle:'town',wall:{style:'pal',skip:['E']},cols:48,rows:44,amp:.75,desc:'Aldea de pescadores bajo acantilados calizos: un faro, viñas en bancales y, según los rumores, una cala donde atracan barcos sin bandera.'};
+ZIDS.push('garraf');
+ZONE_BUILD.garraf=function(z){
+ waterR(z,41,0,7,44);fillR(z,39,0,2,44,T.SAND);floorR(z,40,30,7,2,T.WOODF);floorR(z,40,22,5,1,T.WOODF);
+ roadPoly(z,[[23,0],[23,12],[26,20],[30,28],[34,33]],2,T.PATH);roadPoly(z,[[26,20],[34,14],[37,12]],2,T.PATH);roadPoly(z,[[23,12],[15,17],[13,20]],2,T.PATH);roadPoly(z,[[26,20],[19,24],[17,27]],2,T.PATH);
+ floorR(z,24,19,8,3,T.FLAG);floorR(z,35,26,5,2,T.WOODF);
+ bld(z,{id:'fonda_sirena',name:'Fonda de la Sirena',kind:'inn',x:27,y:13,w:6,h:5,door:2,style:'white',roof:'terra',floors:2,shop:'inn',rent:5});
+ bld(z,{id:'lonja_gf',name:'Lonja de Garraf',kind:'port',x:35,y:23,w:4,h:3,door:2,style:'timber',roof:'slate',prod:'fisher',shop:'fish'});
+ bld(z,{id:'faro',name:'Faro de Garraf',kind:'lighthouse',x:36,y:7,w:3,h:3,door:1,style:'white',roof:'goth',floors:8,tall:2});
+ bld(z,{id:'colmado_gf',name:'Colmado de la Plaza',kind:'shop',x:19,y:14,w:4,h:4,door:1,style:'white',roof:'terra',shop:'general'});
+ bld(z,{id:'bodega_gf',name:'Bodega Cal Tomeu',kind:'shop',x:14,y:24,w:5,h:4,door:2,style:'ochre',roof:'terra',shop:'wine'});
+ bld(z,{id:'ermita_gf',name:'Ermita de Sant Pere Pescador',kind:'chapel',x:11,y:17,w:3,h:3,door:1,style:'stone',roof:'thatch'});
+ bld(z,{id:'cuartel_gf',name:'Cuartelillo de Garraf',kind:'barracks',x:30,y:22,w:4,h:3,door:1,style:'stone',roof:'slate'});
+ bld(z,{id:'pescador_gf1',name:'Choza de redes',kind:'fisher',x:36,y:18,w:3,h:3,door:1,style:'timber',roof:'thatch',prod:'fisher'});
+ bld(z,{id:'pescador_gf2',name:'Choza del viejo Quim',kind:'fisher',x:31,y:30,w:4,h:3,door:1,style:'timber',roof:'thatch',prod:'fisher'});
+ [[20,19],[24,25],[18,31],[24,31],[28,35],[13,32]].forEach((p,i)=>bld(z,{id:'casa_gf'+(i+1),name:'Casa de Garraf '+(i+1),kind:'house',x:p[0],y:p[1],w:4,h:3,door:1,style:['white','ochre','stone','white','ochre','stone'][i],roof:['terra','terra','slate','terra','thatch','terra'][i],forSale:i===3?190:i===5?340:0}));
+ bld(z,{id:'cala',name:'Cala de los Contrabandistas',kind:'cala',virtual:true,ex:38,ey:40,w:0,h:0});
+ bld(z,{id:'cueva_garraf',name:'Cueva de la Sirena',kind:'cave',virtual:true,ex:6,ey:10,w:0,h:0});
+ fillR(z,5,26,7,8,T.FARM,true);
+ plot(z,'garraf_p1',4,36,9,6,180,'Viña de Cal Pau',0);plot(z,'garraf_p2',2,22,6,6,120,'Bancal del acantilado',0);
+ [[24,12],[24,20],[28,25],[32,31],[23,5]].forEach(p=>prop(z,'lamp',p[0]+.5,p[1]+.5));
+ [[37,24],[38,26],[34,27]].forEach(p=>prop(z,'barrel',p[0]+.5,p[1]+.5,{solid:1}));[[39,28],[38,29]].forEach(p=>prop(z,'crate',p[0]+.5,p[1]+.5,{solid:1}));
+ prop(z,'well',26.5,17.5,{solid:1});prop(z,'bench',29.5,21.5,{});prop(z,'campfire',37.5,40.5,{});prop(z,'crate',36.5,39.5,{solid:1});prop(z,'crate',39.5,41.5,{solid:1});
+ [[43,10],[44,26],[43,38],[45,18]].forEach(p=>prop(z,'boat',p[0],p[1],{deco:1,water:1}));
+ [[3,6],[6,3],[3,16],[2,30],[4,40],[10,42],[44,2]].forEach((p,i)=>pillar(z,p[0]+.5,p[1]+.5,4+i%3*2,1.4+(i%2)*.5));
+ for(let i=0;i<10;i++)prop(z,'boulder',[8,14,20,30,36,9,25,34,12,21][i]+.5,[6,8,36,38,40,13,41,3,38,9][i]+.5,{solid:1,deco:1});
+ for(let i=0;i<10;i++)prop(z,'flowers',[10,16,22,27,32,12,20,30,34,8][i]+.5,[9,12,22,28,33,30,35,19,37,33][i]+.5,{v:i});
+ exitR(z,22,0,4,1,'cornisa',22,41);
+ z.arrive={cornisa:{x:23.5,y:2.5}};z.spawn={x:25,y:20};
+ z.spots={plaza:{x:28,y:20.5},market:{x:27,y:21},port:{x:38,y:27},patrol:[[23,3],[25,19],[30,28],[36,32]],beggar:[[23,21]],alley:{x:21,y:29}};
+ z.sea=1;
+};

@@ -1,0 +1,678 @@
+<body style="background:#334;margin:0"><canvas id=c></canvas>
+<script>
+// ===================== CORE: azar, dados, calendario, comprobaciones =====================
+const GAME_VERSION = 1;
+function mulberry32(a){return function(){a|=0;a=a+0x6D2B79F5|0;let t=Math.imul(a^a>>>15,1|a);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296}}
+function hashStr(s){let h=2166136261;for(let i=0;i<s.length;i++){h^=s.charCodeAt(i);h=Math.imul(h,16777619)}return h>>>0}
+let RNG=Math.random;
+const rnd=()=>RNG();
+const ri=(a,b)=>a+Math.floor(rnd()*(b-a+1));
+const pick=(arr,r)=>arr[Math.floor((r||rnd)()*arr.length)];
+const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
+const lerp=(a,b,t)=>a+(b-a)*t;
+const smooth=(a,b,x)=>{const t=clamp((x-a)/(b-a),0,1);return t*t*(3-2*t)};
+const dist=(ax,ay,bx,by)=>Math.hypot(ax-bx,ay-by);
+function wpick(items,wf,r){let t=0;const ws=items.map(i=>{const w=Math.max(0,wf(i));t+=w;return w});if(t<=0)return null;let x=(r||rnd)()*t;for(let i=0;i<items.length;i++){x-=ws[i];if(x<=0)return items[i]}return items[items.length-1]}
+function shuffle(a,r){a=a.slice();for(let i=a.length-1;i>0;i--){const j=Math.floor((r||rnd)()*(i+1));[a[i],a[j]]=[a[j],a[i]]}return a}
+const cap=s=>s.charAt(0).toUpperCase()+s.slice(1);
+let G=null; // estado de partida
+
+// ---------- dados ----------
+function d(n){return ri(1,n)}
+function roll(expr){const m=/^(\d+)d(\d+)([+-]\d+)?$/.exec(String(expr).replace(/\s/g,''));if(!m)return{total:+expr||0,rolls:[],bonus:0};const n=+m[1],s=+m[2],b=m[3]?+m[3]:0;const rolls=[];let t=b;for(let i=0;i<n;i++){const r=d(s);rolls.push(r);t+=r}return{total:t,rolls,bonus:b}}
+function rollCrit(expr){const m=/^(\d+)d(\d+)([+-]\d+)?$/.exec(expr);if(!m)return roll(expr);return roll((+m[1]*2)+'d'+m[2]+(m[3]||''))}
+function d20(mode){const a=d(20),b=d(20);if(mode>0)return{r:Math.max(a,b),a,b,mode:1};if(mode<0)return{r:Math.min(a,b),a,b,mode:-1};return{r:a,a,b:null,mode:0}}
+
+// ---------- atributos ----------
+const AB=['str','dex','con','int','wis','cha'];
+const ABN={str:'Fuerza',dex:'Destreza',con:'Constitución',int:'Inteligencia',wis:'Sabiduría',cha:'Carisma'};
+const ABS={str:'FUE',dex:'DES',con:'CON',int:'INT',wis:'SAB',cha:'CAR'};
+const mod=s=>Math.floor((s-10)/2);
+const fmt=n=>(n>=0?'+':'')+n;
+const pbOf=l=>2+Math.floor((l-1)/4);
+const XPT=[0,300,900,2700,6500,14000,23000,34000,48000,64000,85000];
+const MAXLEVEL=10;
+const SKILLS=[
+{id:'acro',n:'Acrobacias',ab:'dex'},{id:'animal',n:'Trato con animales',ab:'wis'},{id:'arcana',n:'Arcanos',ab:'int'},{id:'athl',n:'Atletismo',ab:'str'},
+{id:'decep',n:'Engaño',ab:'cha'},{id:'hist',n:'Historia',ab:'int'},{id:'insight',n:'Perspicacia',ab:'wis'},{id:'intim',n:'Intimidación',ab:'cha'},
+{id:'invest',n:'Investigación',ab:'int'},{id:'medic',n:'Medicina',ab:'wis'},{id:'nature',n:'Naturaleza',ab:'int'},{id:'percep',n:'Percepción',ab:'wis'},
+{id:'perf',n:'Interpretación',ab:'cha'},{id:'persu',n:'Persuasión',ab:'cha'},{id:'relig',n:'Religión',ab:'int'},{id:'sleight',n:'Juego de manos',ab:'dex'},
+{id:'stealth',n:'Sigilo',ab:'dex'},{id:'survival',n:'Supervivencia',ab:'wis'}];
+const SK=Object.fromEntries(SKILLS.map(s=>[s.id,s]));
+const TOOLS={smith:'Herramientas de herrero',carp:'Herramientas de carpintero',alch:'Suministros de alquimista',cook:'Utensilios de cocinero',leath:'Herramientas de peletero',weav:'Herramientas de tejedor',herb:'Kit de herboristería',thief:'Herramientas de ladrón',brew:'Suministros de vinatero',mason:'Herramientas de albañil'};
+
+// ---------- calendario ----------
+const MONTHS=['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre'];
+const MCUM=[0,31,59,90,120,151,181,212,243,273,304,334,365];
+const DOW=['lunes','martes','miércoles','jueves','viernes','sábado','domingo'];
+const SEASONS=['Primavera','Verano','Otoño','Invierno'];
+const START_YEAR=1042;
+function mkT(y,m,dd,h,mi){return(((y-START_YEAR)*365)+MCUM[m]+(dd-1))*1440+h*60+(mi||0)}
+function dateOf(t){const days=Math.floor(t/1440),mins=t-days*1440;const y=START_YEAR+Math.floor(days/365);const doy=days%365;let m=0;while(m<11&&doy>=MCUM[m+1])m++;return{days,y,doy,m,d:doy-MCUM[m]+1,h:Math.floor(mins/60),mi:Math.floor(mins%60),dow:days%7,hf:mins/60}}
+function seasonOf(doy){if(doy>=354||doy<79)return 3;if(doy<171)return 0;if(doy<264)return 1;return 2}
+function sunTimes(doy){const s=Math.cos(2*Math.PI*(doy-172)/365);return{rise:7.2-1.0*s,set:19.2+1.9*s,s}}
+const PHASES=['Noche profunda','Amanecer','Mañana','Día','Tarde','Crepúsculo','Noche'];
+function phaseOf(t){const D=dateOf(t);const{rise,set}=sunTimes(D.doy);const h=D.hf;let id;
+ if(h<rise-1)id=0;else if(h<rise+0.5)id=1;else if(h<11.5)id=2;else if(h<15.5)id=3;else if(h<set-1)id=4;else if(h<set+1)id=5;else id=6;
+ return{id,name:PHASES[id],night:id===0||id===6,dark:id===0||id===6||(id===5&&h>set+0.3)||(id===1&&h<rise-0.3)}}
+function sunLevel(t){const D=dateOf(t);const{rise,set}=sunTimes(D.doy);const h=D.hf;const el=Math.sin(Math.PI*(h-rise)/(set-rise));return el} // <0 noche
+function fmtTime(t){const D=dateOf(t);return String(D.h).padStart(2,'0')+':'+String(D.mi).padStart(2,'0')}
+function fmtDate(t){const D=dateOf(t);return D.d+' de '+MONTHS[D.m]+' de '+D.y}
+const FESTS=[
+{id:'anyo',n:'Cap d\'Any',m:11,d:31,len:2,desc:'Las doce uvas al compás de las campanas.',goods:['vino','uvas'],bonus:'Plazas llenas de gente brindando.'},
+{id:'reyes',n:'Cabalgata de Reyes',m:0,d:5,len:2,desc:'Desfile de carrozas por la Rambla y caramelos para los niños.',goods:['dulces']},
+{id:'eulalia',n:'Santa Eulàlia',m:1,d:12,len:2,desc:'Fiesta de la patrona de Barcino: gigantes y cabezudos recorren las calles.',goods:['dulces']},
+{id:'carnaval',n:'Carnestoltes',m:1,d:25,len:2,desc:'Máscaras, disfraces y el entierro de la sardina.',goods:['pescado']},
+{id:'jordi',n:'Sant Jordi',m:3,d:23,len:1,desc:'Se regalan rosas y libros. Dicen que la sangre del dragón floreció en rosas.',goods:['rosas','libro']},
+{id:'moreneta',n:'Fiesta de la Moreneta',m:3,d:27,len:1,desc:'Peregrinos suben a Montserrat a ver a la Virgen Morena.',goods:['miel','queso']},
+{id:'joan',n:'Revetlla de Sant Joan',m:5,d:23,len:2,desc:'Hogueras, cohetes y la flama del Canigó cruzan la noche más corta del año.',goods:['cocas','vino']},
+{id:'gracia',n:'Fiesta Mayor de Gràcia',m:7,d:15,len:7,desc:'Las calles compiten por la decoración más fantástica.',goods:['cerveza']},
+{id:'diada',n:'Diada',m:8,d:11,len:1,desc:'Día de memoria y banderas en las plazas.',goods:[]},
+{id:'merce',n:'La Mercè',m:8,d:24,len:3,desc:'Castellers, correfocs y bestias de fuego: la gran fiesta de Barcino.',goods:['vino','cocas']},
+{id:'castanyada',n:'La Castanyada',m:9,d:31,len:2,desc:'Castañas asadas, panellets y boniatos para los difuntos.',goods:['castanas','panellets']},
+{id:'nadal',n:'Nadal',m:11,d:24,len:3,desc:'El Tió de Nadal «caga» regalos y se come escudella.',goods:['dulces','carne']}
+];
+function festAt(t){const D=dateOf(t);for(const f of FESTS){const s=MCUM[f.m]+f.d-1;for(let k=0;k<f.len;k++){if((s+k)%365===D.doy)return f}}return null}
+function nextFest(t){const D=dateOf(t);let best=null,bd=999;for(const f of FESTS){let s=MCUM[f.m]+f.d-1;let dd=s-D.doy;if(dd<0)dd+=365;if(dd<bd){bd=dd;best=f}}return{f:best,days:bd}}
+
+// ---------- bus / log ----------
+const bus={h:{},on(e,f){(this.h[e]=this.h[e]||[]).push(f)},emit(e,a,b){(this.h[e]||[]).forEach(f=>f(a,b))}};
+function log(msg,cls){if(!G)return;G.logs.push({t:G.t,m:msg,c:cls||''});if(G.logs.length>200)G.logs.shift();bus.emit('log',msg,cls||'')}
+function toast(msg,cls){bus.emit('toast',msg,cls||'')}
+
+// ---------- estado derivado del PJ ----------
+function eqItems(){return Object.values(G.pc.eq).filter(Boolean)}
+function hasFeat(id,who){return(who||G.pc).feats.indexOf(id)>=0}
+function skillMod(sk,who){const p=who||G.pc;const s=SK[sk];let m=mod(p.abil[s.ab]);const pr=p.skills[sk]||0;m+=pr*pbOf(p.level);
+ if(p.bon&&p.bon[sk])m+=p.bon[sk];
+ if(p===G.pc){for(const it of eqItems()){const I=ITEMS[it.id];if(I&&I.bon&&I.bon[sk])m+=I.bon[sk]}
+  if(G.pc.needs&&G.pc.needs.hunger>85)m-=2;if(G.pc.needs&&G.pc.needs.fatigue>85)m-=2}
+ return m}
+function passive(sk,who){let v=10+skillMod(sk,who);const p=who||G.pc;if(p.feats&&p.feats.indexOf('observant')>=0&&(sk==='percep'||sk==='invest'))v+=5;return v}
+function abMod(a,who){return mod((who||G.pc).abil[a])}
+function levelFromXp(xp){let l=1;while(l<MAXLEVEL&&xp>=XPT[l])l++;return l}
+function dcLabel(dc){return dc<=8?'Trivial':dc<=11?'Fácil':dc<=14?'Media':dc<=17?'Difícil':dc<=20?'Muy difícil':'Casi imposible'}
+// Comprobación de habilidad del jugador. o:{adv,bonus,ab (usar otra característica),label,silent,noInsp}
+function check(sk,dc,o){o=o||{};const p=G.pc;let bonus=skillMod(sk);if(o.ab){bonus=bonus-abMod(SK[sk].ab)+abMod(o.ab)}bonus+=(o.bonus||0);
+ let adv=o.adv||0;if(p.needs&&p.needs.hunger>95)adv-=1;
+ let r=d20(clamp(adv,-1,1));let nat=r.r;let total=nat+bonus;let ok=(nat===20)||(nat!==1&&total>=dc);let note='';
+ if(!ok&&!o.noInsp){if(p.inspiration){p.inspiration=false;const r2=d20(0);note='Inspiración heroica: repites la tirada (d20='+r2.r+').';nat=r2.r;total=nat+bonus;ok=nat===20||(nat!==1&&total>=dc)}
+  else if(hasFeat('lucky')&&p.luck>0){p.luck--;const r2=d20(0);note='Punto de suerte: repites la tirada (d20='+r2.r+').';nat=r2.r;total=nat+bonus;ok=nat===20||(nat!==1&&total>=dc)}
+  else if(p.species==='halfling'&&nat===1){const r2=d20(0);note='Suerte de mediano: repites el 1 (d20='+r2.r+').';nat=r2.r;total=nat+bonus;ok=nat===20||(nat!==1&&total>=dc)}}
+ const res={ok,nat,total,dc,bonus,adv,sk,note,margin:total-dc,crit:nat===20,fumble:nat===1,txt:''};
+ res.txt=(o.label||SK[sk].n)+': d20('+nat+')'+fmt(bonus)+' = '+total+' vs CD '+dc+' → '+(ok?'ÉXITO':'FALLO')+(nat===20?' (¡crítico!)':nat===1?' (pifia)':'');
+ if(!o.silent){log(res.txt,ok?'ok':'bad');bus.emit('roll',res)}
+ return res}
+function saveCheck(ab,dc,o){o=o||{};const p=G.pc;let b=abMod(ab);if(p.saves.indexOf(ab)>=0)b+=pbOf(p.level);if(o.bonus)b+=o.bonus;
+ let adv=o.adv||0;if(p.species==='gnome'&&(ab==='int'||ab==='wis'||ab==='cha'))adv=1;if(p.species==='dwarf'&&o.poison)adv=1;
+ const r=d20(adv);const total=r.r+b;const ok=r.r===20||(r.r!==1&&total>=dc);return{ok,nat:r.r,total,dc,txt:'Salvación de '+ABN[ab]+': d20('+r.r+')'+fmt(b)+' = '+total+' vs CD '+dc+' → '+(ok?'ÉXITO':'FALLO')}}
+
+// ---------- utilidades varias ----------
+function copyJSON(o){return JSON.parse(JSON.stringify(o))}
+function fmtGold(n){return Math.round(n).toLocaleString('es-ES')+' fl'}
+function relWord(a){return a<=-70?'Enemigo jurado':a<=-40?'Hostil':a<=-15?'Desconfiado':a<15?'Neutral':a<40?'Amistoso':a<70?'Aliado':'Íntimo'}
+function dirName(dx,dy){const a=Math.atan2(dy,dx);const n=['este','sureste','sur','suroeste','oeste','noroeste','norte','noreste'];return n[(Math.round(a/(Math.PI/4))+8)%8]}
+// ===================== DATOS DE REGLAS (D&D 2024 / SRD 5.2, adaptado) =====================
+const SKIN_H=['#f6d7bd','#efc29b','#d9a273','#b97a4b','#8a5532','#5e3920','#3d2414'];
+const EYE_C=['#3b2a1a','#5a3d22','#2f6b3a','#2d5f9a','#7a8a99','#8a6d1e','#a02020','#6b3fa0','#101010','#d8b83a'];
+const HAIR_C=['#1a1410','#3b2616','#6b4423','#a2682a','#d3a64a','#e8d28a','#b83a1c','#8a8a8a','#e8e8e8','#2c3e6b','#5b2d7a','#2e7a4f'];
+const HAIR_S=[['short','Corto'],['long','Melena larga'],['pony','Coleta'],['braids','Trenzas'],['bald','Rapado'],['bun','Moño'],['curly','Rizado'],['mohawk','Cresta'],['bob','Media melena']];
+const FACIAL=[['none','Sin vello'],['stubble','Barba de días'],['short','Barba corta'],['long','Barba larga'],['moustache','Bigote'],['goatee','Perilla']];
+const SCARS=[['none','Ninguna'],['eye','Cicatriz en el ojo'],['cheek','Cicatriz en la mejilla'],['brow','Ceja partida']];
+const MARKS=[['none','Ninguna'],['tribal','Tatuaje tribal'],['runes','Runas en el rostro'],['freckles','Pecas'],['paint','Pintura de guerra']];
+const EAR_S=[['normal','Normales'],['long','Largas'],['pointed','Puntiagudas']];
+const HORN_S=[['none','Sin cuernos'],['curved','Curvados'],['ram','De carnero'],['straight','Rectos']];
+const BUILDS=[['Esbelta',0],['Media',1],['Robusta',2]];
+const DYES=['#7a2e2e','#a8542a','#c79a2e','#4f7a3a','#2f6b6b','#2e4f8a','#5b3a8a','#8a3a6b','#5a4a3a','#2b2b33','#d8d0c0','#8a8a96'];
+
+const SPECIES={
+human:{n:'Humano',size:'M',scale:1,spd:3.0,dark:0,skin:SKIN_H,pros:['Ingenioso: Inspiración heroica (una vez al día repites una tirada fallida)','Habilidoso: competencia en una habilidad adicional','Versátil: una dote de origen adicional'],cons:['Sin visión en la oscuridad','Sin resistencias innatas'],fac:{},bon:{},hpl:0,flags:{insp:1,skill:1,feat:1},d:'Los más numerosos y adaptables; presentes en cada rincón de Barcino.'},
+elf:{n:'Elfo',size:'M',scale:.98,spd:3.0,dark:18,skin:['#f6e0cc','#efd0a8','#d9b88a','#c9a47a','#8a7aa0','#5f5878'],pros:['Sentidos agudos: competencia en Percepción, Perspicacia o Supervivencia','Linaje feérico: ventaja contra encantamientos','Trance: solo necesitas 4 horas de sueño','Visión en la oscuridad (18 m)'],cons:['Constitución frágil (−1 PG por nivel)','Enanos y artesanos desconfían de ellos'],fac:{artesanos:-5,circulo:5},bon:{},hpl:-1,flags:{sleep4:1,pick:['percep','insight','survival']},
+ lin:[['alto','Alto elfo','Conoces un truco de mago (Rayo de fuego) y tienes +1 Arcanos.'],['silvano','Elfo silvano','Pasos más rápidos y +1 Sigilo.'],['drow','Drow','Visión en la oscuridad ampliada (36 m), pero −2 Percepción a pleno sol.']],d:'Longevos y elegantes; muchos viven en los bosques de Collserola.'},
+dwarf:{n:'Enano',size:'M',scale:.86,spd:2.6,dark:36,skin:SKIN_H,pros:['Visión en la oscuridad (36 m)','Resistencia enana: ventaja y resistencia contra veneno','Dureza: +1 PG por nivel','Cantería: +2 en comprobaciones de minería y piedra'],cons:['Paso corto (más lento)','Desconfían de la magia (−2 Arcanos)','Incómodos en el bosque (−1 Supervivencia)'],fac:{artesanos:10,circulo:-5},bon:{arcana:-2,survival:-1},hpl:1,flags:{stone:1,poison:1},d:'Mineros y herreros tenaces de las canteras de Collbató.'},
+halfling:{n:'Mediano',size:'S',scale:.7,spd:2.5,dark:0,skin:SKIN_H,pros:['Suerte: repites los 1 naturales','Valiente: ventaja contra el miedo','Sigilo natural (+2 Sigilo)','Agilidad: pasas entre criaturas mayores'],cons:['Pequeño: carga solo el 75%','Más lento que los demás','Poco intimidante (−2 Intimidación)'],fac:{mercaderes:5},bon:{stealth:2,intim:-2},hpl:0,carry:.75,flags:{brave:1},d:'Cocineros, comerciantes y granjeros de buen humor.'},
+gnome:{n:'Gnomo',size:'S',scale:.72,spd:2.5,dark:18,skin:['#f1c9a5','#e0ac82','#d9a273','#c68a5e','#e6b8a0','#b88a68'],pros:['Visión en la oscuridad (18 m)','Astucia gnómica: ventaja en salvaciones de INT, SAB y CAR','Linaje con ventajas propias'],cons:['Pequeño y lento','Poco imponente (−2 Intimidación)','Curiosidad indomable (−1 Engaño)'],fac:{circulo:5,artesanos:5},bon:{intim:-2,decep:-1},hpl:0,carry:.75,
+ lin:[['bosque','Gnomo del bosque','Hablas con bestias pequeñas: +2 Trato con animales.'],['roca','Gnomo de roca','Artífice nato: +2 Historia (artefactos) y +1 a todo lo que fabricas.']],d:'Inventores y alquimistas que adoran los artilugios.'},
+dragonborn:{n:'Dracónido',size:'M',scale:1.1,spd:3.0,dark:18,skin:['#b83a2a','#d8a62a','#3a62b8','#3f8a4a','#dfe8ee','#a8642c'],pros:['Ascendencia dracónica: resistencia a un elemento','Aliento dracónico: ataque de aliento en combate','Visión en la oscuridad (18 m)'],cons:['Aspecto atemorizante: −2 Persuasión con desconocidos','Escamas ruidosas (−1 Sigilo)'],fac:{concejo:-5,castellers:5},bon:{persu:-2,stealth:-1},hpl:0,flags:{breath:1},
+ lin:[['rojo','Rojo (fuego)','Aliento de fuego y resistencia al fuego.'],['oro','Oro (fuego)','Aliento de fuego y resistencia al fuego.'],['azul','Azul (rayo)','Aliento eléctrico y resistencia al rayo.'],['verde','Verde (veneno)','Aliento venenoso y resistencia al veneno.'],['blanco','Blanco (frío)','Aliento helado y resistencia al frío.'],['bronce','Bronce (rayo)','Aliento eléctrico y resistencia al rayo.']],d:'Orgullosos descendientes de dragones; algunos dicen que del mismo Drac de Sant Jordi.'},
+goliath:{n:'Goliat',size:'M',scale:1.2,spd:3.2,dark:0,skin:['#a8a8b0','#9aa0a8','#b8a898','#8a8a94','#c0b8b0','#7a7a84'],pros:['Ascendencia gigante: poder de gigante a elegir','Constitución de piedra: reduces 1d12+CON el daño recibido (1/día)','Complexión poderosa: carga ×2','Forma grande (nivel 5)'],cons:['Alto y llamativo (−2 Sigilo)','Torpe con objetos pequeños (−1 Juego de manos)','Necesita comer más (hambre ×1.3)'],fac:{orden:5,castellers:10},bon:{stealth:-2,sleight:-1},hpl:0,carry:2,hunger:1.3,flags:{stonehard:1},
+ lin:[['colinas','Gigante de las colinas','Derribar a un enemigo con un golpe.'],['piedra','Gigante de piedra','Reducir daño con tu constitución de roca.'],['hielo','Gigante de escarcha','Golpe helado que ralentiza.'],['fuego','Gigante de fuego','Golpe ardiente.']],d:'Atletas de las cumbres de Montserrat; imbatibles en los castells.'},
+orc:{n:'Orco',size:'M',scale:1.1,spd:3.1,dark:36,skin:['#7a9a5a','#6a8a4a','#8a9a6a','#7a8a7a','#5a7a4a','#9a7a5a'],pros:['Visión en la oscuridad (36 m)','Descarga de adrenalina: bonificación al huir o atacar','Resistencia incansable: sobrevives una vez al día con 1 PG','Mirada feroz: +2 Intimidación'],cons:['Prejuicios: Concejo −10, Mercaderes −5','Trato áspero (−1 Persuasión)','Cuesta ocultarse (−1 Sigilo)'],fac:{concejo:-10,mercaderes:-5,sombra:5},bon:{intim:2,persu:-1,stealth:-1},hpl:0,flags:{relentless:1},d:'Fieros y leales, mal vistos por las élites de la ciudad.'},
+tiefling:{n:'Tiefling',size:'M',scale:1,spd:3.0,dark:18,skin:['#b84a4a','#9b3c6b','#6a4a9a','#4a5ea0','#d07a5a','#7a3a3a'],pros:['Visión en la oscuridad (18 m)','Resistencia al fuego','Legado: truco y conjuros innatos','Presencia sobrenatural: +1 Engaño'],cons:['Desconfianza supersticiosa: Orden de Montserrat −15, Concejo −5','Animales y niños lo evitan (−2 Trato con animales)'],fac:{orden:-15,concejo:-5,sombra:5},bon:{animal:-2,decep:1},hpl:0,flags:{fireres:1},
+ lin:[['abisal','Abisal','Truco: Rociada venenosa. Resistencia al veneno.'],['ctonico','Ctónico','Truco: Toque helado. Resistencia necrótica.'],['infernal','Infernal','Truco: Rayo de fuego. Resistencia al fuego extra.']],d:'Marcados por un pasado infernal; muchos encuentran hogar en el Raval.'}
+};
+
+const CLASSES={
+barbarian:{n:'Bárbaro',hd:12,sv:['str','con'],skN:2,sk:['animal','athl','intim','nature','percep','survival'],arm:'Ligeras, medias y escudos',caster:null,spAb:null,pros:['Furia: más daño y resistencia','Defensa sin armadura (10+DES+CON)','Dado de golpe d12'],cons:['No lanza conjuros','Pocas habilidades sociales'],eq:['hacha_grande','hacha_mano','pieles','botas','pantalon'],gold:15,sig:['rage'],d:'Guerrero primigenio que canaliza su furia.'},
+bard:{n:'Bardo',hd:8,sv:['dex','cha'],skN:3,sk:SKILLS.map(s=>s.id),arm:'Ligeras',caster:'full',spAb:'cha',pros:['Inspiración de bardo','Conjuros de Carisma','Experto en dos habilidades','Polifacético'],cons:['Solo armadura ligera','PG moderados'],eq:['estoque','daga','cuero','laud','sombrero_pluma','botas'],gold:20,sig:['inspire'],spells:['burla','curewounds','sleep'],d:'Cantor, cuentacuentos y diplomático con magia.'},
+cleric:{n:'Clérigo',hd:8,sv:['wis','cha'],skN:2,sk:['hist','insight','medic','persu','relig'],arm:'Ligeras, medias y escudos',caster:'full',spAb:'wis',pros:['Conjuros divinos (Sabiduría)','Canalizar divinidad','Armadura media y escudo'],cons:['Atado a su fe: el Concejo y la Orden esperan comportamiento ejemplar','Ataque físico modesto'],eq:['maza','escudo','camisote_malla','amuleto','botas'],gold:15,sig:['turn'],spells:['sacredflame','curewounds','bless'],d:'Sacerdote armado que sana y castiga con poder divino.'},
+druid:{n:'Druida',hd:8,sv:['int','wis'],skN:2,sk:['arcana','animal','insight','medic','nature','percep','relig','survival'],arm:'Ligeras y escudos (sin metal)',caster:'full',spAb:'wis',pros:['Conjuros de la naturaleza','Forma salvaje','Trato con bestias'],cons:['No usa armadura metálica','Mal visto en las ciudades amuralladas (−5 Concejo)'],eq:['baston','cuero','gorro','botas'],gold:10,sig:['wild'],spells:['zarzas','curewounds','thunderwave'],d:'Guardián de bosques y bestias.'},
+fighter:{n:'Guerrero',hd:10,sv:['str','con'],skN:2,sk:['acro','animal','athl','hist','insight','intim','percep','survival'],arm:'Todas las armaduras y escudos',caster:null,spAb:null,pros:['Tomar aliento (curación en combate)','Oleada de acción (nivel 2)','Todas las armaduras'],cons:['Sin magia','Pocas herramientas fuera del combate'],eq:['espada_larga','escudo','cota_malla','ballesta','botas'],gold:15,sig:['secondwind'],d:'Maestro de armas y tácticas.'},
+monk:{n:'Monje',hd:8,sv:['str','dex'],skN:2,sk:['acro','athl','hist','insight','relig','stealth'],arm:'Ninguna',caster:null,spAb:null,pros:['Artes marciales (d6 desarmado)','Defensa sin armadura (10+DES+SAB)','Ráfaga de golpes'],cons:['Sin armadura ni escudo','Pierde beneficios si se equipa pesado'],eq:['baston','tunica','sandalias'],gold:5,sig:['flurry'],d:'Disciplina del cuerpo y de la mente.'},
+paladin:{n:'Paladín',hd:10,sv:['wis','cha'],skN:2,sk:['athl','insight','intim','medic','persu','relig'],arm:'Todas las armaduras y escudos',caster:'half',spAb:'cha',pros:['Imposición de manos','Castigo divino','Todas las armaduras'],cons:['Un juramento: las acciones deshonrosas le pesan','Conjuros desde nivel 2'],eq:['espada_larga','escudo','cota_malla','amuleto','botas'],gold:15,sig:['layhands','smite'],spells:['bless','curewounds'],d:'Caballero sagrado con juramento.'},
+ranger:{n:'Explorador',hd:10,sv:['str','dex'],skN:3,sk:['animal','athl','insight','invest','nature','percep','stealth','survival'],arm:'Ligeras, medias y escudos',caster:'half',spAb:'wis',pros:['Marca del cazador','Experto en rastreo y supervivencia','Arco y espada'],cons:['Conjuros desde nivel 2','Incómodo entre multitudes'],eq:['arco_largo','espada_corta','cuero_tachonado','capa_viaje','botas_altas'],gold:12,sig:['huntersmark'],spells:['curewounds'],d:'Cazador y guía de la espesura.'},
+rogue:{n:'Pícaro',hd:8,sv:['dex','int'],skN:4,sk:['acro','athl','decep','insight','intim','invest','percep','perf','persu','sleight','stealth'],arm:'Ligeras',caster:null,spAb:null,pros:['Ataque furtivo','Pericia en dos habilidades','Acción astuta'],cons:['Pocos PG','Mala fama: la Guardia lo vigila'],eq:['estoque','daga','cuero','capucha','botas'],gold:15,sig:['sneak','cunning'],d:'Sigilo, astucia y golpes certeros.'},
+sorcerer:{n:'Hechicero',hd:6,sv:['con','cha'],skN:2,sk:['arcana','decep','insight','intim','persu','relig'],arm:'Ninguna',caster:'full',spAb:'cha',pros:['Magia innata (Carisma)','Rayo de fuego y dardo mágico','Más conjuros por descanso'],cons:['Dado de golpe d6','Sin armadura'],eq:['daga','tunica_ropaje','sandalias'],gold:15,sig:[],spells:['firebolt','magicmissile','shield'],d:'Magia que corre por su sangre.'},
+warlock:{n:'Brujo',hd:8,sv:['wis','cha'],skN:2,sk:['arcana','decep','hist','intim','invest','nature','relig'],arm:'Ligeras',caster:'pact',spAb:'cha',pros:['Explosión sobrenatural','Maleficio','Espacios que se recuperan al descansar'],cons:['Pocos espacios de conjuro','Su patrón exige favores'],eq:['daga','cuero','capucha','botas','amuleto'],gold:12,sig:[],spells:['eldritch','hex','burla'],d:'Poder obtenido de un pacto.'},
+wizard:{n:'Mago',hd:6,sv:['int','wis'],skN:2,sk:['arcana','hist','insight','invest','medic','nature','relig'],arm:'Ninguna',caster:'full',spAb:'int',pros:['Libro de conjuros','Recuperación arcana','Mejor lista de conjuros'],cons:['Dado de golpe d6','Sin armadura','Frágil en combate'],eq:['baston','tunica_ropaje','libro','sombrero','sandalias'],gold:20,sig:[],spells:['firebolt','magicmissile','shield','sleep'],d:'Estudioso de las artes arcanas.'}
+};
+function slotsFor(cls,lvl){const c=CLASSES[cls].caster;if(!c)return 0;if(c==='full')return[2,3,4,5,6,7,8,9,10,11][lvl-1];if(c==='half')return lvl<2?0:[2,2,3,3,4,4,5,5,6][lvl-2];if(c==='pact')return[1,2,2,2,2,3,3,3,3,4][lvl-1];return 0}
+
+const BACKGROUNDS={
+acolyte:{n:'Acólito',ab:['int','wis','cha'],feat:'magicinit_c',sk:['insight','relig'],tool:null,eq:['tunica','sandalias'],gold:15,fac:{orden:12,concejo:2},d:'Serviste en una capilla de Barcino o en el monasterio.'},
+artisan:{n:'Artesano',ab:['str','dex','int'],feat:'crafter',sk:['invest','persu'],tool:'smith',eq:['tunica','botas'],gold:25,fac:{artesanos:12},d:'Aprendiste un oficio en los talleres del Raval.'},
+charlatan:{n:'Charlatán',ab:['dex','con','cha'],feat:'skilled',sk:['decep','sleight'],tool:'thief',eq:['tunica_fina','zapatos'],gold:15,fac:{sombra:6,mercaderes:3},d:'Vivías de tu labia y de cuentos bien contados.'},
+criminal:{n:'Criminal',ab:['dex','con','int'],feat:'alert',sk:['sleight','stealth'],tool:'thief',eq:['tunica','capucha','botas'],gold:15,fac:{sombra:12,concejo:-8},d:'Los callejones del Raval te conocen por otro nombre.'},
+entertainer:{n:'Artista',ab:['str','dex','cha'],feat:'musician',sk:['acro','perf'],tool:null,eq:['tunica_fina','laud','zapatos'],gold:15,fac:{castellers:8},d:'Actuaste en tabernas, plazas y fiestas mayores.'},
+farmer:{n:'Granjero',ab:['str','con','wis'],feat:'tough',sk:['animal','nature'],tool:'carp',eq:['tunica','sombrero_ala','botas'],gold:12,fac:{circulo:4},d:'Naciste entre bancales de vid y olivos.'},
+guard:{n:'Guardia',ab:['str','int','wis'],feat:'alert',sk:['athl','percep'],tool:null,eq:['tunica','botas','lanza'],gold:12,fac:{concejo:12},d:'Patrullaste las murallas de Barcino.'},
+guide:{n:'Guía',ab:['dex','con','wis'],feat:'magicinit_d',sk:['stealth','survival'],tool:null,eq:['capa_viaje','botas_altas'],gold:10,fac:{circulo:10},d:'Conoces los senderos de Collserola como tu mano.'},
+hermit:{n:'Ermitaño',ab:['con','wis','cha'],feat:'healer',sk:['medic','relig'],tool:'herb',eq:['tunica','sandalias'],gold:8,fac:{orden:6,circulo:6},d:'Pasaste años solo en una cueva de la montaña.'},
+merchant:{n:'Mercader',ab:['con','int','cha'],feat:'lucky',sk:['animal','persu'],tool:null,eq:['tunica_fina','zapatos','sombrero_ala'],gold:30,fac:{mercaderes:12},d:'Recorriste ferias llevando mercancías.'},
+noble:{n:'Noble',ab:['str','int','cha'],feat:'skilled',sk:['hist','persu'],tool:null,eq:['tunica_noble','zapatos','anillo'],gold:60,fac:{concejo:10,mercaderes:4},d:'Tu familia tiene casa en el Barri Gòtic.'},
+sailor:{n:'Marinero',ab:['str','dex','wis'],feat:'tavern',sk:['acro','percep'],tool:null,eq:['tunica','botas','daga'],gold:15,fac:{mercaderes:3,sombra:3},d:'Faenaste en el Port Vell entre redes y borrascas.'},
+scribe:{n:'Escriba',ab:['dex','int','wis'],feat:'skilled',sk:['invest','percep'],tool:null,eq:['tunica','libro','zapatos'],gold:20,fac:{orden:4,concejo:4},d:'Copiaste manuscritos en el Scriptorium.'},
+sage:{n:'Sabio',ab:['con','int','wis'],feat:'magicinit_w',sk:['arcana','hist'],tool:null,eq:['tunica_ropaje','libro','zapatos'],gold:15,fac:{orden:5,concejo:3},d:'Estudiaste en el Colegio de Arcanos.'},
+soldier:{n:'Soldado',ab:['str','dex','con'],feat:'savage',sk:['athl','intim'],tool:null,eq:['tunica','botas','espada_corta'],gold:15,fac:{concejo:6},d:'Luchaste en las compañías del vizcondado.'},
+wayfarer:{n:'Viajero',ab:['dex','wis','cha'],feat:'lucky',sk:['insight','stealth'],tool:'thief',eq:['capa_viaje','botas_altas'],gold:12,fac:{},d:'Creciste en caminos, sin raíces ni hogar.'},
+casteller:{n:'Casteller',ab:['str','con','cha'],feat:'tough',sk:['athl','persu'],tool:null,eq:['tunica','botas'],gold:12,fac:{castellers:14,concejo:4},d:'Subiste a lo alto de las torres humanas de la Mercè.'}
+};
+
+const FEATS={
+alert:{n:'Alerta',o:1,d:'Sumas tu bonificador de competencia a la iniciativa y no te sorprenden fácilmente.'},
+crafter:{n:'Artesano (dote)',o:1,d:'Tus creaciones salen un poco mejor (+1 a la tirada de fabricación) y trabajas un 20% más rápido.'},
+healer:{n:'Sanador',o:1,d:'Las pociones y vendajes que usas curan más (+1d4+competencia) y tu Medicina es más fiable.'},
+lucky:{n:'Afortunado',o:1,d:'Tienes 3 puntos de suerte al día: puedes repetir una tirada fallida.'},
+magicinit_c:{n:'Iniciado en la magia (clérigo)',o:1,d:'Aprendes Llama sagrada y Curar heridas (1 vez al día).',sp:['sacredflame','curewounds']},
+magicinit_d:{n:'Iniciado en la magia (druida)',o:1,d:'Aprendes Zarzas y Curar heridas (1 vez al día).',sp:['zarzas','curewounds']},
+magicinit_w:{n:'Iniciado en la magia (mago)',o:1,d:'Aprendes Rayo de fuego y Dardo mágico (1 vez al día).',sp:['firebolt','magicmissile']},
+musician:{n:'Músico',o:1,d:'Actuar en tabernas rinde más y puede darte Inspiración heroica.'},
+savage:{n:'Atacante salvaje',o:1,d:'Una vez por combate repites los dados de daño de tu arma.'},
+skilled:{n:'Habilidoso',o:1,d:'Ganas competencia en tres habilidades a tu elección.'},
+tavern:{n:'Pendenciero',o:1,d:'Tus puños hacen 1d4+FUE y ganas ventaja en peleas de taberna.'},
+tough:{n:'Duro de pelar',o:1,d:'Ganas 2 puntos de golpe extra por nivel.'},
+actor:{n:'Actor',o:0,d:'+1 CAR. Ventaja en Engaño e Interpretación al hacerte pasar por otro.',ab:['cha']},
+athlete:{n:'Atleta',o:0,d:'+1 FUE o DES. Ventaja en Atletismo para trepar y saltar.',ab:['str','dex']},
+observant:{n:'Observador',o:0,d:'+1 INT o SAB. +5 a Percepción e Investigación pasivas.',ab:['int','wis']},
+skillexpert:{n:'Experto en habilidades',o:0,d:'+1 a una característica y pericia (doble competencia) en una habilidad.',ab:AB},
+resilient:{n:'Resistente',o:0,d:'+1 a una característica y competencia en su salvación.',ab:AB},
+inspiring:{n:'Líder inspirador',o:0,d:'+1 SAB o CAR. Ventaja en Persuasión ante grupos.',ab:['wis','cha']},
+sharpshooter:{n:'Tirador certero',o:0,d:'+1 DES. +2 al daño con armas a distancia.',ab:['dex']},
+gwm:{n:'Maestro de armas',o:0,d:'+1 FUE. +2 al daño con armas de dos manos.',ab:['str']}
+};
+
+const SPELLS={
+firebolt:{n:'Rayo de fuego',lvl:0,t:'atk',dmg:'1d10',dt:'fuego',d:'Proyectil ígneo (ataque de conjuro).'},
+eldritch:{n:'Explosión sobrenatural',lvl:0,t:'atk',dmg:'1d10',dt:'fuerza',d:'Rayo de energía arcana.'},
+sacredflame:{n:'Llama sagrada',lvl:0,t:'save',sv:'dex',dmg:'1d8',dt:'radiante',d:'Luz divina que cae sobre el objetivo (salv. DES).'},
+burla:{n:'Burla cruel',lvl:0,t:'save',sv:'wis',dmg:'1d6',dt:'psíquico',d:'Insultos mágicos; el objetivo tendrá desventaja en su próximo ataque.',fx:'dis'},
+zarzas:{n:'Látigo de zarzas',lvl:0,t:'atk',dmg:'1d6',dt:'perforante',d:'Una liana espinosa golpea al objetivo.'},
+magicmissile:{n:'Dardo mágico',lvl:1,t:'auto',dmg:'3d4+3',dt:'fuerza',d:'Tres dardos que nunca fallan.'},
+curewounds:{n:'Curar heridas',lvl:1,t:'heal',dmg:'2d8',d:'Restauras puntos de golpe al tocar.'},
+sleep:{n:'Sueño',lvl:1,t:'sleep',d:'Hace dormir a criaturas con pocos puntos de golpe.'},
+thunderwave:{n:'Ola atronadora',lvl:1,t:'save',sv:'con',dmg:'2d8',dt:'trueno',half:1,d:'Estruendo que golpea a los enemigos (salv. CON).'},
+shield:{n:'Escudo',lvl:1,t:'buff',fx:'shield',d:'+5 CA hasta tu siguiente turno.'},
+bless:{n:'Bendición',lvl:1,t:'buff',fx:'bless',d:'+1d4 a tus ataques durante 3 turnos.'},
+hex:{n:'Maleficio',lvl:1,t:'buff',fx:'hex',d:'+1d6 de daño necrótico a cada golpe sobre un objetivo marcado.'}
+};
+function spellDC(){return 8+pbOf(G.pc.level)+abMod(CLASSES[G.pc.cls].spAb||'int')}
+function spellAtk(){return pbOf(G.pc.level)+abMod(CLASSES[G.pc.cls].spAb||'int')}
+// ===================== DATOS DEL MUNDO: objetos, bienes, recetas, facciones, fauna, flora =====================
+const ITEMS={};
+function IT(id,n,o){ITEMS[id]=Object.assign({id,n,w:0.5,v:1},o);return ITEMS[id]}
+// armas: dmg, rng, fin, two, vis
+const WP=(id,n,dmg,v,w,k,c,o)=>IT(id,n,Object.assign({slot:'main',dmg,v,w,vis:{k,c:c||'#c9ced6'}},o||{}));
+WP('daga','Daga','1d4',2,.5,'dagger',null,{fin:1});
+WP('espada_corta','Espada corta','1d6',10,1,'sword',null,{fin:1});
+WP('espada_larga','Espada larga','1d8',15,1.5,'sword');
+WP('estoque','Estoque','1d8',25,1,'rapier',null,{fin:1});
+WP('hacha_mano','Hacha de mano','1d6',5,1,'axe');
+WP('hacha_grande','Gran hacha','1d12',30,3.5,'gaxe',null,{two:1});
+WP('maza','Maza','1d6',5,2,'mace','#9aa0a8');
+WP('martillo','Martillo de guerra','1d8',15,1,'hammer','#9aa0a8');
+WP('lanza','Lanza','1d6',1,1.5,'spear');
+WP('baston','Bastón','1d6',1,2,'staff','#7a5a36',{foc:1,two:1});
+WP('garrote','Garrote','1d4',1,1,'club','#6a4a2a');
+WP('arco_corto','Arco corto','1d6',25,1,'bow','#7a5a36',{rng:1,fin:1,two:1});
+WP('arco_largo','Arco largo','1d8',50,1,'bow','#6a4a2a',{rng:1,fin:1,two:1});
+WP('ballesta','Ballesta ligera','1d8',25,2.5,'crossbow','#6a4a2a',{rng:1,fin:1,two:1});
+WP('varita','Varita','1d4',10,.2,'wand','#a08be0',{foc:1});
+// armaduras (slot body)
+const AR=(id,n,ac,dexcap,v,w,k,c,c2,o)=>IT(id,n,Object.assign({slot:'body',ac,dexcap,v,w,vis:{k,c,c2:c2||'#00000033'},dy:0},o||{}));
+AR('ropa','Ropa común',10,null,1,1,'tunic','#8a7a62',null,{dy:1,tag:'ropa'});
+AR('tunica','Túnica',10,null,2,1,'tunic','#8a6a4a',null,{dy:1,tag:'ropa'});
+AR('tunica_fina','Túnica fina',10,null,15,1,'tunic','#5a5aa0','#d8c47a',{dy:1,tag:'ropa'});
+AR('tunica_noble','Atuendo noble',10,null,60,1.5,'noble','#7a2e4a','#d8c47a',{dy:1,tag:'ropa'});
+AR('vestido','Vestido',10,null,8,1,'dress','#a05a6a','#e8d8b0',{dy:1,tag:'ropa'});
+AR('tunica_ropaje','Ropaje de erudito',10,null,10,1.5,'robe','#3a3a7a','#c8a84a',{dy:1,tag:'ropa'});
+AR('acolchada','Armadura acolchada',11,null,5,4,'padded','#a89a78','#6a5a3a');
+AR('cuero','Armadura de cuero',11,null,10,5,'leather','#8a5a30','#5a3a1c');
+AR('cuero_tachonado','Cuero tachonado',12,null,45,6,'leather','#6a4a2a','#b8b8c0');
+AR('pieles','Armadura de pieles',12,2,10,6,'hide','#8a6a40','#e8e0d0');
+AR('camisote_malla','Camisote de malla',13,2,50,10,'chain','#a8aeb8','#6a7078');
+AR('escamas','Cota de escamas',14,2,50,22,'chain','#8a9aa8','#4a5a68',{stealthDis:1});
+AR('cota_malla','Cota de malla',16,0,75,25,'chain','#9aa0aa','#5a6068',{stealthDis:1,str:13});
+AR('laminas','Armadura de láminas',17,0,200,30,'plate','#8f949c','#4a4f58',{stealthDis:1,str:15});
+AR('placas','Armadura de placas',18,0,1500,32,'plate','#b8bec8','#6a7078',{stealthDis:1,str:15});
+IT('escudo','Escudo',{slot:'off',acb:2,v:10,w:3,vis:{k:'shield',c:'#7a5a36',c2:'#b8b8c0'}});
+IT('libro','Libro de conjuros',{slot:'off',v:25,w:1.5,vis:{k:'tome',c:'#5a2e6a',c2:'#d8c47a'},foc:1});
+IT('antorcha','Antorcha',{slot:'off',v:1,w:.5,vis:{k:'torch',c:'#6a4a2a',c2:'#ff9a3a'}});
+IT('laud','Laúd',{slot:'off',v:35,w:1,vis:{k:'lute',c:'#9a6a36',c2:'#3a2a1a'},bon:{perf:2}});
+IT('orbe','Orbe arcano',{slot:'off',v:80,w:1,vis:{k:'orb',c:'#7ac8ff',c2:'#fff'},foc:1,bon:{arcana:1}});
+// ropa
+const HD=(id,n,k,c,v,o)=>IT(id,n,Object.assign({slot:'head',v,w:.5,vis:{k,c},dy:1},o||{}));
+HD('capucha','Capucha','hood','#4a4a4a',2);HD('gorro','Gorro de lana','cap','#6a8a4a',2);HD('sombrero_ala','Sombrero de ala ancha','hat','#8a6a3a',4);
+HD('sombrero_pluma','Sombrero con pluma','hatp','#7a2e4a',10);HD('sombrero','Sombrero puntiagudo','wiz','#3a3a7a',8,{bon:{arcana:1}});
+HD('casco_hierro','Casco de hierro','helm','#a8aeb8',20,{dy:0,acb:0});HD('yelmo','Yelmo completo','greathelm','#b8bec8',60,{dy:0,w:2});
+HD('diadema','Diadema de plata','circlet','#d8dce6',90,{dy:0,bon:{persu:1}});HD('corona','Corona de oro','crown','#e8c040',400,{dy:0,bon:{persu:2}});
+const LG=(id,n,k,c,v,o)=>IT(id,n,Object.assign({slot:'legs',v,w:.5,vis:{k,c},dy:1},o||{}));
+LG('pantalon','Pantalón','pants','#6a5a3a',2);LG('falda','Falda','skirt','#7a4a5a',3);LG('calzas','Calzas de hierro','greaves','#9aa0aa',30,{dy:0,w:3});LG('calzones','Calzones','shorts','#7a6a4a',1);
+const FT=(id,n,k,c,v,o)=>IT(id,n,Object.assign({slot:'feet',v,w:.5,vis:{k,c},dy:1},o||{}));
+FT('botas','Botas','boots','#5a3a1c',4);FT('botas_altas','Botas de viaje','hboots','#4a3018',12);FT('zapatos','Zapatos','shoes','#3a2a1a',3);FT('sandalias','Sandalias','sandals','#8a6a3a',1);
+IT('capa','Capa',{slot:'cloak',v:5,w:1,vis:{c:'#6a2e2e'},dy:1});
+IT('capa_viaje','Capa de viaje',{slot:'cloak',v:12,w:1.2,vis:{c:'#4a5a3a'},dy:1,bon:{survival:1}});
+IT('manto_fino','Manto de terciopelo',{slot:'cloak',v:70,w:1.2,vis:{c:'#4a2a6a'},dy:1,bon:{persu:1}});
+IT('amuleto','Amuleto',{slot:'neck',v:15,w:.1,vis:{k:'amulet',c:'#e8c040'}});
+IT('anillo','Anillo de sello',{slot:'ring',v:40,w:.1,bon:{persu:1}});
+IT('bufanda','Bufanda',{slot:'neck',v:3,w:.3,vis:{k:'scarf',c:'#a8542a'},dy:1});
+IT('amuleto_tacto','Amuleto de la Moreneta',{slot:'neck',v:120,w:.1,vis:{k:'amulet',c:'#d8d8ff'},bon:{relig:2,insight:1}});
+IT('anillo_sombra','Anillo de la Sombra',{slot:'ring',v:150,w:.1,bon:{stealth:2,sleight:1}});
+// bienes y recursos
+const GD=(id,n,cat,v,w,o)=>IT(id,n,Object.assign({cat,v,w:w||.5},o||{}));
+GD('grano','Grano de trigo','agri',1,1);GD('harina','Harina','agri',2,1);GD('pan','Pan','food',2,.5,{nut:25});GD('verdura','Verduras','agri',1,.5,{nut:12});
+GD('fruta','Fruta','agri',1,.5,{nut:10});GD('uvas','Uvas','agri',2,.5,{nut:6});GD('aceituna','Aceitunas','agri',1,.5,{nut:5});GD('vino','Vino','food',4,1,{nut:6,drink:1});
+GD('aceite','Aceite de oliva','food',3,1);GD('queso','Queso','food',3,.5,{nut:18});GD('pescado','Pescado','food',2,.7,{nut:20});GD('carne','Carne','food',3,1,{nut:28});
+GD('huevos','Huevos','food',1,.3,{nut:10});GD('leche','Leche','food',1,1,{nut:8});GD('miel','Miel','food',4,.5,{nut:14});GD('sal','Sal de Cardona','agri',2,.5);
+GD('castanas','Castañas asadas','food',1,.4,{nut:15});GD('panellets','Panellets','food',3,.3,{nut:20});GD('dulces','Dulces','food',2,.3,{nut:12});
+GD('cocas','Coca de Sant Joan','food',3,.5,{nut:22});GD('cerveza','Cerveza','food',2,1,{nut:7,drink:1});GD('estofado','Estofado','food',4,1,{nut:45});GD('escudella','Escudella','food',5,1,{nut:50});
+GD('madera','Madera','raw',1,2);GD('piedra','Piedra','raw',1,3);GD('mineral','Mineral de hierro','raw',3,3);GD('carbon','Carbón','raw',2,2);GD('lingote','Lingote de hierro','raw',10,2);
+GD('piel','Piel cruda','raw',3,1.5);GD('cuero','Cuero curtido','raw',6,1);GD('lana','Lana','raw',2,.5);GD('tela','Tela','raw',5,.5);GD('cuerda','Cuerda','raw',3,.5);
+GD('hierbas','Hierbas aromáticas','herb',2,.2);GD('setas','Setas','herb',3,.3,{nut:6});GD('rosas','Rosas','herb',3,.2);GD('orquidea','Orquídea de la Moreneta','herb',45,.1,{rare:1});GD('hiperico','Flor de Sant Joan','herb',6,.1);
+GD('libro_g','Libro','misc',15,1);GD('tinta','Tinta','misc',4,.3);GD('pluma','Plumas','raw',1,.1);GD('colmillo','Colmillo','raw',8,.5);GD('cuerno','Cuerno','raw',10,.7);GD('cristal','Cristal arcano','raw',60,.3,{rare:1});
+GD('escama','Escama de víbria','raw',150,.3,{rare:1});GD('veneno','Glándula de veneno','raw',20,.2);
+GD('pocion','Poción de curación','potion',25,.3,{heal:'2d4+2'});GD('antidoto','Antídoto','potion',15,.3,{cure:1});GD('pocion_gran','Poción de curación mayor','potion',80,.3,{heal:'4d4+4'});
+// semillas / herramientas
+const SD=(id,n,sp,v)=>IT(id,n,{cat:'seed',sp,v,w:.1});
+SD('semilla_trigo','Semillas de trigo','trigo',2);SD('semilla_verdura','Semillas de hortalizas','hortaliza',2);SD('semilla_vid','Esqueje de vid','vid',8);
+SD('sap_pino','Piñón','pino',2);SD('sap_encina','Bellota','encina',2);SD('sap_olivo','Plantón de olivo','olivo',12);SD('sap_castano','Castaña para sembrar','castano',3);
+SD('sem_romero','Esqueje de romero','romero',3);SD('sem_orquidea','Semilla de orquídea','orquidea',60);
+const TL=(id,n,v,tool)=>IT(id,n,{cat:'tool',tool,v,w:2});
+TL('hacha_tala','Hacha de leñador',8,'axe');TL('pico','Pico de minero',10,'pick');TL('cana','Caña de pescar',5,'rod');TL('hoz','Hoz',4,'sickle');TL('pala','Pala',5,'shovel');
+IT('trampa','Trampa de caza',{cat:'tool',tool:'trap',v:12,w:2});
+for(const k of Object.keys(ITEMS)){const I=ITEMS[k];if(I.cat==='food'&&!I.nut)I.nut=8}
+// muebles y construcciones (colocables)
+const PLACE={};
+function PL(id,n,cost,mats,o){PLACE[id]=Object.assign({id,n,cost,mats,w:1,h:1,solid:true,cat:'mueble'},o||{})}
+PL('valla_madera_b','Valla de madera baja',4,{madera:1},{cat:'valla',fh:.7,hp:20,mat:'wood'});
+PL('valla_madera_a','Valla de madera alta',8,{madera:2},{cat:'valla',fh:1.5,hp:35,mat:'wood'});
+PL('valla_piedra_b','Muro de piedra bajo',10,{piedra:2},{cat:'valla',fh:.8,hp:60,mat:'stone'});
+PL('valla_piedra_a','Muro de piedra alto',22,{piedra:4},{cat:'valla',fh:1.9,hp:100,mat:'stone'});
+PL('valla_hierro','Reja de hierro',30,{lingote:1,madera:1},{cat:'valla',fh:1.6,hp:90,mat:'iron'});
+PL('cama','Cama',30,{madera:3,tela:2},{bed:1,spr:'furn_bed'});PL('mesa','Mesa',15,{madera:3},{spr:'furn_table'});PL('silla','Silla',8,{madera:1},{spr:'furn_chair',solid:false});
+PL('cofre','Cofre',20,{madera:2,lingote:1},{store:1,spr:'furn_chest'});PL('estanteria','Estantería',25,{madera:3},{spr:'furn_shelf'});
+PL('fogon','Fogón de cocina',35,{piedra:4,lingote:1},{station:'kitchen',spr:'furn_stove'});PL('forja','Forja',90,{piedra:6,lingote:3,carbon:2},{station:'forge',spr:'furn_forge'});
+PL('mesa_alq','Mesa de alquimia',70,{madera:3,cristal:1},{station:'alchemy',spr:'furn_alch'});PL('telar','Telar',50,{madera:5,cuerda:2},{station:'loom',spr:'furn_loom'});
+PL('banco','Banco de carpintero',40,{madera:4,lingote:1},{station:'bench',spr:'furn_bench'});PL('curtidor','Bastidor de curtido',30,{madera:3,cuerda:2},{station:'tannery',spr:'furn_tan'});
+PL('alfombra','Alfombra',20,{tela:2},{spr:'furn_rug',solid:false,flat:1});PL('farol','Farol',12,{lingote:1},{spr:'furn_lamp',light:1});PL('estatua','Estatua',120,{piedra:5},{spr:'furn_statue'});
+PL('fuente','Fuente',150,{piedra:6},{spr:'furn_fountain'});PL('bancal','Bancal de cultivo',6,{madera:1},{cat:'cultivo',spr:'furn_plot',solid:false,flat:1,plot:1});
+PL('corral','Comedero de corral',10,{madera:2},{cat:'cultivo',spr:'furn_trough',solid:false,pen:1});
+
+// recetas: tool (competencia), st (estación), in, out, dc, min
+const RECIPES=[
+{id:'r_pan',n:'Hornear pan',tool:'cook',st:'kitchen',in:{harina:2},out:['pan',3],dc:8,min:60,xp:10},
+{id:'r_estofado',n:'Cocinar estofado',tool:'cook',st:'kitchen',in:{carne:1,verdura:2},out:['estofado',2],dc:10,min:60,xp:15},
+{id:'r_panellets',n:'Hacer panellets',tool:'cook',st:'kitchen',in:{harina:1,miel:1,dulces:0},out:['panellets',4],dc:11,min:90,xp:20},
+{id:'r_queso',n:'Curar queso',tool:'cook',st:'kitchen',in:{leche:3},out:['queso',1],dc:9,min:90,xp:10},
+{id:'r_lingote',n:'Fundir lingote',tool:'smith',st:'forge',in:{mineral:2,carbon:1},out:['lingote',1],dc:10,min:90,xp:20},
+{id:'r_daga',n:'Forjar daga',tool:'smith',st:'forge',in:{lingote:1},out:['daga',1],dc:10,min:60,xp:25},
+{id:'r_espada',n:'Forjar espada larga',tool:'smith',st:'forge',in:{lingote:2,cuero:1},out:['espada_larga',1],dc:13,min:150,xp:50},
+{id:'r_hacha',n:'Forjar hacha de leñador',tool:'smith',st:'forge',in:{lingote:1,madera:1},out:['hacha_tala',1],dc:9,min:60,xp:20},
+{id:'r_pico',n:'Forjar pico',tool:'smith',st:'forge',in:{lingote:1,madera:1},out:['pico',1],dc:9,min:60,xp:20},
+{id:'r_malla',n:'Forjar cota de malla',tool:'smith',st:'forge',in:{lingote:6,cuero:2},out:['cota_malla',1],dc:15,min:360,xp:120},
+{id:'r_cuero',n:'Curtir cuero',tool:'leath',st:'tannery',in:{piel:2},out:['cuero',2],dc:9,min:90,xp:10},
+{id:'r_arm_cuero',n:'Coser armadura de cuero',tool:'leath',st:'tannery',in:{cuero:4},out:['cuero',1],dc:12,min:180,xp:40,eq:'cuero'},
+{id:'r_tela',n:'Tejer tela',tool:'weav',st:'loom',in:{lana:2},out:['tela',1],dc:9,min:60,xp:10},
+{id:'r_tunica',n:'Confeccionar túnica',tool:'weav',st:'loom',in:{tela:3},out:['tunica',1],dc:10,min:120,xp:20},
+{id:'r_capa',n:'Confeccionar capa de viaje',tool:'weav',st:'loom',in:{tela:3,cuero:1},out:['capa_viaje',1],dc:12,min:180,xp:30},
+{id:'r_pocion',n:'Preparar poción de curación',tool:'alch',st:'alchemy',in:{hierbas:3,setas:1},out:['pocion',1],dc:12,min:90,xp:30},
+{id:'r_antidoto',n:'Preparar antídoto',tool:'herb',st:'alchemy',in:{hierbas:2,veneno:1},out:['antidoto',1],dc:11,min:60,xp:25},
+{id:'r_cuerda',n:'Trenzar cuerda',tool:'weav',st:'loom',in:{lana:2},out:['cuerda',2],dc:8,min:30,xp:5},
+{id:'r_tinta',n:'Preparar tinta',tool:'alch',st:'alchemy',in:{hierbas:1,carbon:1},out:['tinta',2],dc:8,min:30,xp:5},
+{id:'r_vino',n:'Prensar vino',tool:'brew',st:'kitchen',in:{uvas:4},out:['vino',2],dc:10,min:120,xp:15},
+{id:'r_aceite',n:'Prensar aceite',tool:'brew',st:'kitchen',in:{aceituna:4},out:['aceite',2],dc:9,min:90,xp:10}
+];
+const QNAMES=['Tosco','Común','Fino','Excelente','Magistral'];
+const QMULT=[.6,1,1.4,2,3];
+const STATION_N={kitchen:'fogón',forge:'forja',alchemy:'mesa de alquimia',loom:'telar',bench:'banco de carpintero',tannery:'bastidor de curtido'};
+
+// facciones
+const FACTIONS={
+concejo:{n:'Concejo de Barcino',c:'#c8a84a',d:'Gobierno de la ciudad: tributos, guardia y ciudadanía.',ranks:['Forastero','Residente','Ciudadano','Prohombre','Consejero'],req:[0,10,30,55,80],priv:['—','Sin tasas de entrada; puedes alquilar habitaciones','Puedes comprar casas y terrenos en la ciudad','Descuento en tasas; la Guardia te ayuda','Exención de impuestos; voz en el Concejo'],bld:'ayuntamiento'},
+mercaderes:{n:'Gremio de Mercaderes de la Llotja',c:'#d8a040',d:'Controla el comercio de la Rambla.',ranks:['Ajeno','Aprendiz','Compañero','Maestro','Prohombre'],req:[0,10,30,55,80],priv:['—','Puedes montar un puesto en el mercado','−5% en compras','−10% en compras, +10% en ventas','−15% y subastas privadas'],bld:'llotja'},
+artesanos:{n:'Hermandad de Artesanos de Sant Eloi',c:'#c06a3a',d:'Maestros herreros, tejedores y alquimistas.',ranks:['Ajeno','Aprendiz','Oficial','Maestro','Gran Maestro'],req:[0,10,30,55,80],priv:['—','Uso gratuito de talleres públicos','+1 a la fabricación','Recetas de maestro; +2 a la fabricación','Taller propio y aprendices'],bld:'herreria'},
+orden:{n:'Comunidad de Montserrat',c:'#9aa8d8',d:'Monjes del monasterio de la Moreneta.',ranks:['Peregrino','Oblato','Hermano','Prior','Abad'],req:[0,10,30,55,80],priv:['—','Curación y refugio gratis','Acceso a la biblioteca (lore)','Bendiciones; −20% en curaciones','Voz en la comunidad y reliquias'],bld:'monasterio'},
+circulo:{n:'Círculo de Collserola',c:'#6aa860',d:'Druidas y guardabosques que protegen los bosques.',ranks:['Ajeno','Amigo del bosque','Guardián','Hierofante','Archidruida'],req:[0,10,30,55,80],priv:['—','Las bestias te miran con menos recelo','Conocimiento de hierbas raras','Las criaturas pasivas no huyen','Aliado de los espíritus del bosque'],bld:'claro'},
+sombra:{n:'La Sombra del Raval',c:'#8a6aa8',d:'Hermandad de ladrones, contrabandistas y espías.',ranks:['Desconocido','Mano','Sombra','Lugarteniente','Maestro de la Sombra'],req:[0,10,30,55,80],priv:['—','Compras en el mercado negro','Receptadores aceptan lo robado','Escondite seguro; −guardia','Controlas el Raval'],bld:'taberna_raval'},
+castellers:{n:'Colla Castellera de la Rambla',c:'#d85a5a',d:'Levantan torres humanas: orgullo y fama popular.',ranks:['Espectador','Pinya','Tronc','Pom de dalt','Cap de colla'],req:[0,10,30,55,80],priv:['—','Popularidad en fiestas','+1 a Atletismo en festivos','Ovaciones: +fama','Líder carismático de las fiestas'],bld:'plaza_castells'}
+};
+const FAC_IDS=Object.keys(FACTIONS);
+
+// fauna
+const CREAT={
+conejo:{n:'Conejo',diet:'herb',hp:2,ac:10,atk:0,dmg:'1',xp:5,spd:1.8,sz:.45,bi:['forest','coast','hills','river','mountain'],mat:8,gest:3,litter:[2,5],breed:[1,2,3,4,5,6,7,8,9],life:250,loot:{carne:[1,1],piel:[1,1]},flee:1,aggro:0,cap:{collserola:26,martorell:16,collbato:14,montserrat:10}},
+ciervo:{n:'Corzo',diet:'herb',hp:11,ac:12,atk:3,dmg:'1d6',xp:30,spd:2.4,sz:.95,bi:['forest','hills'],mat:30,gest:8,litter:[1,2],breed:[4,5,6],life:700,loot:{carne:[3,5],piel:[1,2]},flee:.9,aggro:0,cap:{collserola:12}},
+jabali:{n:'Jabalí',diet:'omni',hp:25,ac:11,atk:3,dmg:'1d6+1',xp:60,spd:2.2,sz:.9,bi:['forest','hills'],mat:30,gest:8,litter:[2,4],breed:[2,3,4,5],life:700,loot:{carne:[4,6],piel:[1,2],colmillo:[0,1]},flee:.2,aggro:.35,cap:{collserola:11,collbato:7}},
+lobo:{n:'Lobo',diet:'carn',hp:11,ac:13,atk:4,dmg:'2d4+2',xp:100,spd:2.9,sz:.85,bi:['forest','hills','mountain'],mat:30,gest:8,litter:[2,4],breed:[2,3,4],life:800,loot:{piel:[1,1],carne:[1,2]},flee:.1,aggro:.6,prey:['conejo','ciervo','cabra','oveja','zorro','jabali'],cap:{collserola:7,collbato:4,montserrat:4}},
+zorro:{n:'Zorro',diet:'carn',hp:7,ac:13,atk:2,dmg:'1d4',xp:25,spd:2.6,sz:.55,bi:['forest','river','hills'],mat:20,gest:6,litter:[2,4],breed:[1,2,3,4],life:500,loot:{piel:[1,1]},flee:.8,aggro:.05,prey:['conejo','gallina','rata','cuervo'],cap:{collserola:8,martorell:6,collbato:5}},
+cabra:{n:'Cabra montés',diet:'herb',hp:13,ac:12,atk:3,dmg:'1d6',xp:40,spd:2.4,sz:.8,bi:['mountain','hills'],mat:25,gest:8,litter:[1,2],breed:[4,5,6],life:600,loot:{carne:[3,4],piel:[1,1],cuerno:[1,1]},flee:.6,aggro:.05,cap:{collbato:12,montserrat:20}},
+cuervo:{n:'Cuervo',diet:'omni',hp:1,ac:12,atk:0,dmg:'1',xp:2,spd:2.2,sz:.4,bi:['forest','coast','river','hills','mountain'],mat:8,gest:2,litter:[2,3],breed:[2,3,4,5,6],life:400,eggs:1,loot:{pluma:[1,2]},flee:1,aggro:0,fly:1,cap:{barcino:10,collserola:12,martorell:8,collbato:8,montserrat:12}},
+gaviota:{n:'Gaviota',diet:'omni',hp:2,ac:12,atk:0,dmg:'1',xp:2,spd:2.3,sz:.45,bi:['coast'],mat:8,gest:2,litter:[2,3],breed:[3,4,5,6],life:400,eggs:1,loot:{pluma:[1,2]},flee:1,aggro:0,fly:1,cap:{barcino:16}},
+rata:{n:'Rata gigante',diet:'omni',hp:7,ac:12,atk:4,dmg:'1d4+2',xp:25,spd:2.2,sz:.5,bi:['coast','river','hills'],mat:4,gest:2,litter:[3,6],breed:[0,1,2,3,4,5,6,7,8,9,10,11],life:120,loot:{piel:[0,1]},flee:.4,aggro:.5,plague:1,cap:{barcino:22,martorell:12,collbato:10}},
+gato:{n:'Gato callejero',diet:'carn',hp:2,ac:12,atk:1,dmg:'1',xp:3,spd:2.4,sz:.4,bi:['coast','river'],mat:10,gest:5,litter:[2,4],breed:[2,3,4,5,6,7],life:600,loot:{},flee:.9,aggro:0,prey:['rata','cuervo'],cap:{barcino:10,martorell:5}},
+murcielago:{n:'Murciélago gigante',diet:'carn',hp:22,ac:13,atk:4,dmg:'1d6+2',xp:50,spd:2.5,sz:.8,bi:['hills','mountain'],mat:12,gest:6,litter:[1,2],breed:[4,5,6],life:300,loot:{piel:[0,1]},flee:.3,aggro:.55,fly:1,prey:['rata','conejo'],cap:{collbato:18,montserrat:9}},
+vibora:{n:'Víbora gigante',diet:'carn',hp:11,ac:13,atk:4,dmg:'1d6+2',xp:50,spd:1.7,sz:.7,bi:['forest','hills','mountain','river'],mat:15,gest:6,litter:[3,6],breed:[4,5,6,7],life:500,eggs:1,loot:{veneno:[1,1],piel:[0,1]},flee:.2,aggro:.5,prey:['rata','conejo'],cap:{collserola:5,martorell:3,collbato:5,montserrat:6}},
+trasgo:{n:'Trasgo',diet:'omni',hp:7,ac:15,atk:4,dmg:'1d6+2',xp:50,spd:2.4,sz:.62,bi:['forest','hills'],mat:20,gest:10,litter:[1,2],breed:[3,4,5,6,7,8],life:600,loot:{daga:[0,1]},gold:[2,12],flee:.1,aggro:.9,monster:1,hum:1,prey:['conejo','ciervo','oveja','jabali'],cap:{collserola:6,collbato:8}},
+ogro:{n:'Ogro de las cuevas',diet:'omni',hp:59,ac:11,atk:6,dmg:'2d8+4',xp:450,spd:2.2,sz:1.5,bi:['hills'],mat:60,gest:14,litter:[1,1],breed:[5,6,7],life:1500,loot:{piel:[2,3],colmillo:[1,2]},gold:[10,60],flee:0,aggro:.9,monster:1,hum:1,prey:['ciervo','jabali','cabra','oveja'],cap:{collbato:2}},
+vibria:{n:'La Víbria',diet:'carn',hp:70,ac:15,atk:7,dmg:'2d8+4',xp:1100,spd:2.3,sz:1.6,bi:['mountain'],mat:200,gest:60,litter:[1,1],breed:[5,6],life:20000,eggs:1,loot:{escama:[2,3],cristal:[1,1]},gold:[100,300],flee:0,aggro:.7,monster:1,fly:1,unique:1,prey:['cabra','lobo','ciervo'],cap:{montserrat:2}},
+gallina:{n:'Gallina',diet:'herb',hp:2,ac:10,atk:0,dmg:'1',xp:1,spd:1.2,sz:.4,bi:[],mat:6,gest:1,litter:[1,2],breed:[0,1,2,3,4,5,6,7,8,9,10,11],life:500,eggs:1,dom:1,loot:{carne:[1,1],pluma:[1,2]},flee:.5,aggro:0,prod:'huevos',cap:{}},
+oveja:{n:'Oveja',diet:'herb',hp:6,ac:10,atk:0,dmg:'1',xp:2,spd:1.2,sz:.7,bi:[],mat:20,gest:8,litter:[1,2],breed:[8,9,10,11,0],life:900,dom:1,loot:{carne:[3,4],piel:[1,1],lana:[1,2]},flee:.5,aggro:0,prod:'lana',cap:{}},
+cabra_d:{n:'Cabra doméstica',diet:'herb',hp:6,ac:10,atk:1,dmg:'1',xp:2,spd:1.4,sz:.65,bi:[],mat:20,gest:8,litter:[1,2],breed:[8,9,10,11,0],life:900,dom:1,loot:{carne:[3,3],piel:[1,1],leche:[1,2]},flee:.5,aggro:0,prod:'leche',cap:{}}
+};
+const BIOME_HAB={forest:['forest'],coast:['coast'],river:['river'],hills:['hills'],mountain:['mountain']};
+
+// flora
+const FLORA={
+pino:{n:'Pino carrasco',k:'tree',bi:['forest','hills','mountain','coast'],mat:18,chop:{item:'madera',n:[3,5]},seedR:3,life:3000},
+encina:{n:'Encina',k:'tree',bi:['forest','hills','river'],mat:25,chop:{item:'madera',n:[4,6]},harv:{item:'fruta',n:[1,2],months:[9,10,11],name:'bellotas'},seedR:3,life:4000},
+castano:{n:'Castaño',k:'tree',bi:['forest','mountain'],mat:25,chop:{item:'madera',n:[3,5]},harv:{item:'castanas',n:[2,4],months:[8,9,10]},seedR:3,life:4000},
+olivo:{n:'Olivo',k:'tree',bi:['coast','hills','river'],mat:30,chop:{item:'madera',n:[2,3]},harv:{item:'aceituna',n:[3,6],months:[9,10,11]},seedR:2,life:5000},
+romero:{n:'Romero',k:'herb',bi:['hills','coast','mountain','forest'],mat:8,harv:{item:'hierbas',n:[1,3],months:[0,1,2,3,4,5,6,7,8,9,10,11]},seedR:3,life:1500},
+tomillo:{n:'Tomillo',k:'herb',bi:['hills','mountain','forest'],mat:6,harv:{item:'hierbas',n:[1,2],months:[2,3,4,5,6,7,8,9]},seedR:3,life:1000},
+zarza:{n:'Zarzamora',k:'herb',bi:['forest','river'],mat:10,harv:{item:'fruta',n:[2,4],months:[7,8,9]},seedR:3,life:1500},
+niscalo:{n:'Níscalo (seta)',k:'fungus',bi:['forest'],mat:3,harv:{item:'setas',n:[1,3],months:[8,9,10,11]},seedR:4,life:25,kill:1,wet:1},
+rovellon:{n:'Rovelló (seta)',k:'fungus',bi:['forest','hills'],mat:3,harv:{item:'setas',n:[1,2],months:[9,10,11]},seedR:4,life:25,kill:1,wet:1},
+hiperico:{n:'Hipérico (hierba de Sant Joan)',k:'herb',bi:['hills','forest','river'],mat:8,harv:{item:'hiperico',n:[1,2],months:[5,6]},seedR:3,life:700,kill:1},
+orquidea:{n:'Orquídea de la Moreneta',k:'herb',bi:['mountain'],mat:20,harv:{item:'orquidea',n:[1,1],months:[3,4,5]},seedR:2,life:900,kill:1,rare:1},
+trigo:{n:'Trigo',k:'crop',days:16,harv:{item:'grano',n:[4,7]},kill:1,months:[2,3,4,5,9,10],ripe:[5,6,7]},
+hortaliza:{n:'Hortalizas',k:'crop',days:10,harv:{item:'verdura',n:[3,6]},kill:1,months:[2,3,4,5,6,7,8],ripe:[4,5,6,7,8,9]},
+vid:{n:'Vid',k:'crop',days:40,harv:{item:'uvas',n:[4,8]},months:[2,3,4],ripe:[7,8,9],perm:1},
+};
+const TREE_SP=['pino','encina','castano','olivo'];
+
+// nombres
+const NM={
+hum_m:['Jordi','Pau','Marc','Arnau','Bernat','Guillem','Ramon','Pere','Joan','Narcís','Miquel','Oriol','Roger','Quim','Ferran','Biel','Sergi','Aleix','Llorenç','Nil'],
+hum_f:['Montserrat','Núria','Laia','Marta','Mercè','Eulàlia','Jordina','Carme','Maria','Anna','Rosa','Griselda','Blanca','Elisenda','Violant','Àngels','Mireia','Queralt','Roser','Ona'],
+sur:['Puig','Vidal','Ferrer','Soler','Roca','Serra','Pons','Camps','Vila','Bosch','Mas','Martí','Costa','Casals','Ribas','Vives','Pla','Garriga','Oliver','Saura','Castells','Torras','Güell','Carbonell'],
+elf_m:['Aelion','Thalor','Erevan','Sylvar','Caelum','Ilrane'],elf_f:['Aelwen','Sylvana','Liriel','Naivara','Elaith','Ysolde'],
+dw_m:['Brunor','Thorik','Dain','Baldrek','Harbek','Orsik'],dw_f:['Brunhild','Dagna','Helga','Vistra','Torra','Gunnloda'],
+hal_m:['Perrin','Milo','Cade','Garret','Osborn','Wellby'],hal_f:['Lidda','Merla','Seraphina','Verna','Andry','Kithri'],
+gno_m:['Fizzwick','Nim','Boddynock','Zook','Orryn','Wrenn'],gno_f:['Nissa','Breena','Zanna','Lilli','Tana','Pip'],
+dra_m:['Arjhan','Kriv','Balasar','Torinn','Medrash'],dra_f:['Kava','Sora','Harann','Akra','Jheri'],
+gol_m:['Gae-Al','Kuori','Maveith','Nalla','Thotham'],gol_f:['Vimak','Ilikan','Kavaki','Orilo','Egre'],
+orc_m:['Grunk','Shump','Dench','Gell','Krusk','Ront'],orc_f:['Baggi','Emen','Engong','Myev','Ovak','Shautha'],
+tie_m:['Zariel','Mordai','Skamos','Orianna','Rieta'],tie_f:['Akta','Anakis','Kallista','Lerissa','Nemeia']
+};
+function genName(sp,sex,r){r=r||rnd;const g=sex==='f'?'f':'m';const pk=a=>a[Math.floor(r()*a.length)];
+ const key={human:'hum',elf:'elf',dwarf:'dw',halfling:'hal',gnome:'gno',dragonborn:'dra',goliath:'gol',orc:'orc',tiefling:'tie'}[sp]||'hum';
+ const arr=NM[key+'_'+g]||NM['hum_'+g];let n=pk(arr);if(sp==='human'||sp==='halfling'||sp==='gnome'||r()<.55)n+=' '+pk(NM.sur);return n}
+</script><script>
+const GLs={ATL:2048};
+// ===================== SPRITES: personajes (capas), criaturas =====================
+function mkc(w,h){const c=document.createElement('canvas');c.width=w;c.height=h;return c}
+function shade(hex,f){hex=(hex||'#808080').slice(0,7);const n=parseInt(hex.slice(1),16);let r=n>>16&255,g=n>>8&255,b=n&255;
+ if(f<0){r*=1+f;g*=1+f;b*=1+f}else{r+=(255-r)*f;g+=(255-g)*f;b+=(255-b)*f}
+ return'#'+[r,g,b].map(v=>Math.round(clamp(v,0,255)).toString(16).padStart(2,'0')).join('')}
+function mixc(a,b,t){a=a.slice(0,7);b=b.slice(0,7);const x=parseInt(a.slice(1),16),y=parseInt(b.slice(1),16);const f=(s)=>Math.round(lerp(x>>s&255,y>>s&255,t));return'#'+[16,8,0].map(s=>f(s).toString(16).padStart(2,'0')).join('')}
+const FW=24,FH=32;
+
+// Dibuja un personaje humanoide. sp: {sex,skin,hair,hairC,eyeC,facial,scar,mark,build,ears,horns,tusks,tail,snout,scales,eq:{head,body,legs,feet,cloak,main,off,neck}}
+function drawChar(ctx,ox,oy,sp,dir,fr){
+ const R=(x,y,w,h,c)=>{ctx.fillStyle=c;ctx.fillRect(ox+x,oy+y,w,h)};
+ const E=sp.eq||{};const skin=sp.skin,skD=shade(skin,-.2),skL=shade(skin,.14);
+ const bw=sp.build===0?-1:sp.build===2?1:0;const fem=sp.sex==='f';
+ const up=(fr&1)?1:0,side=dir===2,back=dir===1;
+ const hair=sp.hairC||'#3b2616',hs=sp.hair||'short';
+ const hx=8,hy=4-up,hw=8,hh=8;
+ // geometría torso / brazos / piernas
+ let T,AL,AR,LL,RL,lL=0,rL=0;
+ if(!side){const tw=10+2*bw-(fem?2:0),tx=Math.round(12-tw/2);T={x:tx,y:13-up,w:tw,h:9};AL={x:tx-2,y:13-up,w:2,h:8};AR={x:tx+tw,y:13-up,w:2,h:8};
+  LL={x:8,w:4};RL={x:12,w:4};if(fr===1)lL=2;if(fr===3)rL=2;
+  if(fr===1){AL.y+=1;AR.y-=1}if(fr===3){AL.y-=1;AR.y+=1}}
+ else{T={x:9,y:13-up,w:6+(bw>0?1:0),h:9};const sw=(fr===1)?1:(fr===3)?-1:0;AL={x:10+sw,y:13-up,w:3,h:8};AR={x:10-sw,y:13-up,w:3,h:8};
+  if(fr===0||fr===2){LL={x:10,w:3};RL={x:12,w:3}}else if(fr===1){LL={x:8,w:3};RL={x:13,w:3};lL=1}else{LL={x:11,w:3};RL={x:10,w:3};rL=1}}
+ const legTop=22-up;
+ // ---- cola / capa trasera
+ if(sp.tail&&!back){const tc=sp.tailC||skD;if(side){R(6,22,2,2,tc);R(5,24,2,3,tc);R(6,27,2,1,tc)}else{R(T.x+T.w+1,23-up,1,4,tc);R(T.x+T.w+2,26,1,2,tc)}}
+ const cl=E.cloak;
+ if(cl&&!back){const c=cl.c;if(side){R(T.x-2,T.y,3,13,c);R(T.x-2,T.y+10,3,2,shade(c,-.25))}else{R(T.x-1,T.y,T.w+2,14,c);R(T.x-1,T.y+11,T.w+2,3,shade(c,-.25))}}
+ // ---- piernas
+ const bodyK=E.body&&E.body.k;const longBody=bodyK==='robe'||bodyK==='dress';
+ const drawLeg=(L,lift,front)=>{const top=legTop,bot=30-lift;R(L.x,top,L.w,bot-top,skin);
+  if(E.legs){const k=E.legs.k,c=E.legs.c;if(k==='pants'||k==='greaves'){R(L.x,top,L.w,bot-top-(k==='greaves'?0:0),c);if(k==='greaves'){R(L.x,top+3,L.w,bot-top-3,shade(c,.1));R(L.x,top+3,L.w,1,shade(c,-.3))}else if(front)R(L.x+L.w-1,top,1,bot-top,shade(c,-.15))}
+   else if(k==='shorts'){R(L.x,top,L.w,3,c)}}
+  else if(!E.legs&&E.body&&!longBody){R(L.x,top,L.w,2,shade(skin,-.1))}
+  // pies
+  const fy=bot-2;const fe=E.feet;
+  if(fe){const c=fe.c,k=fe.k;if(k==='boots'){R(L.x,fy-1,L.w,3,c);R(L.x,fy+1,L.w+(side?1:0),1,shade(c,-.4))}else if(k==='hboots'){R(L.x,fy-3,L.w,5,c);R(L.x,fy-3,L.w,1,shade(c,.2));R(L.x,fy+1,L.w+(side?1:0),1,shade(c,-.4))}else if(k==='shoes'){R(L.x,fy,L.w+(side?1:0),2,c)}else if(k==='sandals'){R(L.x,fy+1,L.w,1,c);R(L.x,fy,1,1,c)}}
+  else R(L.x,fy,L.w+(side?1:0),2,skD)};
+ if(side){drawLeg(LL,lL,false);drawLeg(RL,rL,true)}else{drawLeg(LL,lL,false);drawLeg(RL,rL,false)}
+ // faldas / ropajes largos / falda
+ if(E.legs&&E.legs.k==='skirt'){R(T.x-1,legTop-1,T.w+2,6,E.legs.c);R(T.x-1,legTop+4,T.w+2,1,shade(E.legs.c,-.25))}
+ if(longBody){const c=E.body.c,c2=E.body.c2;const bot=fem||bodyK==='dress'?27:28;R(T.x-1,legTop-1,T.w+2,bot-legTop+1,c);R(T.x-1,bot,T.w+2,1,c2);if(!side)R(Math.round(11.5-0.5),legTop,1,bot-legTop,shade(c,-.18))}
+ // ---- torso
+ const drawTorso=()=>{R(T.x,T.y,T.w,T.h,skin);const B=E.body;if(!B){// torso desnudo con taparrabos
+   R(T.x,T.y,T.w,T.h,skin);R(T.x,T.y+7,T.w,2,'#6a5a3a');return}
+  const c=B.c,c2=B.c2,k=B.k;R(T.x,T.y,T.w,T.h,c);
+  if(k==='tunic'||k==='noble'||k==='padded'){R(T.x,T.y+6,T.w,1,shade(c,-.3));if(!back)R(T.x+(side?T.w-2:Math.floor(T.w/2)-1),T.y,2,1,skD);
+   if(k==='noble'){if(!side)R(Math.floor(T.x+T.w/2)-1,T.y+1,1,7,c2);R(T.x,T.y,T.w,1,c2);R(T.x,T.y+8,T.w,1,c2)}
+   if(k==='padded'){for(let i=0;i<T.w;i+=2)R(T.x+i,T.y+1,1,7,shade(c,-.15));R(T.x,T.y+4,T.w,1,shade(c,-.15))}
+   if(k==='tunic'){R(T.x,T.y+8,T.w,1,shade(c,-.18))}}
+  else if(k==='robe'||k==='dress'){R(T.x,T.y,T.w,1,c2);if(k==='dress'){R(T.x,T.y+5,T.w,1,c2)}else R(T.x,T.y+5,T.w,1,shade(c,-.3));if(!side&&!back)R(Math.floor(T.x+T.w/2)-1,T.y,2,5,shade(c,-.15))}
+  else if(k==='leather'||k==='hide'){R(T.x,T.y+7,T.w,2,c2);if(k==='leather'){for(let i=0;i<7;i++){const xx=T.x+Math.floor(i*(T.w-1)/6);R(xx,T.y+i,1,1,c2)}}else{R(T.x,T.y,T.w,2,c2);R(T.x,T.y+8,T.w,1,c2);for(let i=0;i<T.w;i+=2)R(T.x+i,T.y+9,1,1,c2)}}
+  else if(k==='chain'||k==='plate'){
+   for(let yy=0;yy<T.h;yy++)for(let xx=0;xx<T.w;xx++){if(k==='chain'){if((xx+yy)%2===0)R(T.x+xx,T.y+yy,1,1,c2)}else{if(xx===0||yy===0||xx===T.w-1)R(T.x+xx,T.y+yy,1,1,shade(c,-.25))}}
+   if(k==='plate'){R(T.x+1,T.y+1,T.w-2,3,shade(c,.18));R(T.x,T.y+7,T.w,2,shade(c,-.25));if(!side&&!back)R(Math.floor(T.x+T.w/2),T.y+2,1,6,shade(c,-.25))}
+   else{R(T.x,T.y+7,T.w,2,c2);R(T.x,T.y+9,T.w,1,shade(c,-.3))}}
+  // cuello
+  if(!back&&!side){R(11,T.y,2,1,skD)}};
+ // brazos (lado lejano primero en side)
+ const drawArm=(A,far)=>{R(A.x,A.y,A.w,A.h,skin);R(A.x,A.y+A.h-2,A.w,2,skL);const B=E.body;if(B){const c=B.c,k=B.k;let sl=4;if(k==='robe'||k==='dress'&&false)sl=7;if(k==='chain'||k==='plate')sl=8;if(k==='leather')sl=5;if(k==='robe')sl=8;if(k==='hide')sl=4;
+   R(A.x,A.y,A.w,sl,c);if(k==='plate'){R(A.x-(side?0:1),A.y-1,A.w+(side?0:2),3,shade(c,.2));R(A.x,A.y+3,A.w,1,shade(c,-.3))}if(k==='leather'){R(A.x,A.y+5,A.w,2,B.c2)}if(k==='chain')R(A.x,A.y+7,A.w,1,shade(c,-.3));
+   if(far)R(A.x,A.y,A.w,sl,shade(c,-.18))}
+  if(far&&!B)R(A.x,A.y,A.w,A.h,skD)};
+ // ---- orden de dibujo
+ if(side){drawArm(AR,true);drawTorso();}
+ else drawTorso();
+ // capa trasera encima en back
+ if(cl&&back){const c=cl.c;R(T.x-1,T.y,T.w+2,14,c);R(T.x-1,T.y+11,T.w+2,3,shade(c,-.25));for(let i=0;i<T.w;i+=3)R(T.x+i,T.y+1,1,12,shade(c,-.12))}
+ // ---- arma / escudo (fuera de la mano)
+ const main=E.main,off=E.off;
+ const weapon=(hxp,hyp,flip)=>{if(!main)return;const k=main.k,c=main.c||'#c9ced6',w='#6a4a2a';const X=hxp;const V=(x,y,wd,h,col)=>R(x,y,wd,h,col);
+  if(k==='sword'||k==='rapier'||k==='dagger'){const len=k==='dagger'?4:k==='rapier'?11:9;V(X,hyp-len-1,1,len,c);V(X,hyp-len-1,1,1,shade(c,.3));V(X-1,hyp-1,3,1,k==='rapier'?'#c8a84a':'#8a7a4a');V(X,hyp,1,2,w);if(k==='rapier')V(X-1,hyp-2,3,1,'#c8a84a')}
+  else if(k==='axe'){V(X,hyp-9,1,11,w);V(X-(flip?0:2),hyp-10,3,4,c);V(X+(flip?1:-3),hyp-9,1,2,shade(c,.25))}
+  else if(k==='gaxe'){V(X,hyp-12,1,15,w);V(X-2,hyp-12,5,4,c);V(X-2,hyp-12,5,1,shade(c,.3));V(X,hyp-8,1,1,shade(c,-.3))}
+  else if(k==='mace'){V(X,hyp-8,1,10,w);V(X-1,hyp-11,3,3,c);V(X-1,hyp-11,3,1,shade(c,.25))}
+  else if(k==='hammer'){V(X,hyp-9,1,11,w);V(X-2,hyp-11,5,3,c);V(X-2,hyp-11,5,1,shade(c,.25))}
+  else if(k==='spear'){V(X,hyp-15,1,18,w);V(X,hyp-18,1,3,c);V(X-1,hyp-16,3,1,c)}
+  else if(k==='staff'){V(X,hyp-16,1,19,main.c||w);V(X-1,hyp-18,3,2,'#7ad0ff');V(X,hyp-19,1,1,'#d8f4ff')}
+  else if(k==='club'){V(X,hyp-8,2,9,main.c||w);V(X-1,hyp-8,3,3,main.c||w)}
+  else if(k==='bow'){const bc=main.c||w;V(X+1,hyp-11,1,1,bc);V(X,hyp-10,1,2,bc);V(X-1,hyp-8,1,6,bc);V(X,hyp-2,1,2,bc);V(X+1,hyp-1,1,1,bc);V(X+1,hyp-10,1,10,'#e8e0c8')}
+  else if(k==='crossbow'){V(X-3,hyp-3,7,1,main.c||w);V(X-3,hyp-4,1,3,main.c||w);V(X+3,hyp-4,1,3,main.c||w);V(X-1,hyp-3,2,3,w)}
+  else if(k==='wand'){V(X,hyp-4,1,5,w);V(X,hyp-6,1,2,main.c||'#a08be0')}};
+ const offhand=(xp,yp)=>{if(!off)return;const k=off.k,c=off.c,c2=off.c2||'#b8b8c0';
+  if(k==='shield'){const wd=side?3:6;const sx=xp-(side?1:2);R(sx,yp,wd,8,shade(c,-.3));R(sx+1,yp+1,wd-2,6,c);if(!side)R(sx+2,yp+3,2,2,c2);else R(sx+1,yp+3,1,2,c2)}
+  else if(k==='tome'){R(xp-1,yp+1,4,5,c);R(xp-1,yp+1,4,1,c2);R(xp,yp+2,2,3,shade(c,.25))}
+  else if(k==='torch'){R(xp,yp-3,1,6,c);const f=(fr%2===0);R(xp-1,yp-6,3,3,c2);R(xp,yp-7-(f?1:0),1,2,'#ffe27a');R(xp,yp-5,1,1,'#fff6c0')}
+  else if(k==='lute'){R(xp-2,yp-1,5,5,c);R(xp-1,yp,3,3,c2);R(xp+1,yp-6,1,6,c)}
+  else if(k==='orb'){R(xp-1,yp-4,4,4,c);R(xp,yp-3,1,1,c2)}};
+ if(!side){
+  if(!back){weapon(AL.x+0,AL.y+7,false);}
+  drawArm(AL,false);drawArm(AR,false);
+  if(!back){weapon(AL.x,AL.y+7,false);offhand(AR.x,AR.y+1)}else{weapon(AR.x+1,AR.y+7,true);offhand(AL.x,AL.y+1)}
+ }else{
+  drawArm(AL,false);weapon(AL.x+AL.w,AL.y+7,true);offhand(AR.x-1,AR.y+1);
+ }
+ // cuello / amuleto
+ if(E.neck&&!back){const n=E.neck;if(n.k==='amulet'){R(side?T.x+T.w-2:11,T.y+1,2,2,n.c);R(side?T.x+T.w-2:11,T.y+1,1,1,'#fff6c0')}else if(n.k==='scarf'){R(T.x,T.y-1,T.w,2,n.c);R(side?T.x+T.w-2:T.x+2,T.y+1,2,3,shade(n.c,-.2))}}
+ // ---- cabeza
+ const head=()=>{
+  R(hx,hy,hw,hh,skin);
+  if(!side){R(hx,hy+hh-1,hw,1,skD);R(hx+hw-1,hy+1,1,hh-2,skD)}
+  else{R(hx,hy+hh-1,hw,1,skD)}
+  if(sp.snout&&!back){if(side){R(hx+hw,hy+4,3,3,skin);R(hx+hw,hy+6,3,1,skD);R(hx+hw+2,hy+4,1,1,'#1a1a1a')}else{R(hx+1,hy+5,6,3,skD);R(hx+2,hy+6,1,1,'#1a1a1a');R(hx+5,hy+6,1,1,'#1a1a1a')}}
+  // orejas
+  if(sp.ears==='pointed'||sp.ears==='long'){const L=sp.ears==='long'?4:2;if(side){R(hx+1,hy+2-L+2,2,L,skin);R(hx+1,hy+2-L+2,1,1,skD)}else{R(hx-2,hy+2,2,2,skin);R(hx-1-(L>2?1:0),hy+1-(L>2?2:0),1,2+(L>2?2:0),skin);R(hx+hw,hy+2,2,2,skin);R(hx+hw+(L>2?1:0),hy+1-(L>2?2:0),1,2+(L>2?2:0),skin)}}
+  else if(!side&&sp.sp!=='dragonborn'){R(hx-1,hy+3,1,2,skin);R(hx+hw,hy+3,1,2,skin)}
+  // cara
+  if(!back){
+   const ex=side?hx+5:hx+2;const ex2=side?hx+5:hx+5;
+   if(sp.sp==='dragonborn'){if(!side){R(hx+2,hy+3,1,1,sp.eyeC||'#d8b83a');R(hx+5,hy+3,1,1,sp.eyeC||'#d8b83a')}else R(hx+5,hy+3,1,1,sp.eyeC||'#d8b83a')}
+   else if(!side){R(hx+2,hy+4,1,1,'#fff');R(hx+5,hy+4,1,1,'#fff');R(hx+2,hy+4,1,1,sp.eyeC||'#3b2a1a');R(hx+5,hy+4,1,1,sp.eyeC||'#3b2a1a');R(hx+1,hy+3,2,1,shade(hair,-.1));R(hx+5,hy+3,2,1,shade(hair,-.1));
+    if(!sp.snout)R(hx+3,hy+6,2,1,fem?'#b86a6a':skD)}
+   else{R(hx+5,hy+4,1,1,sp.eyeC||'#3b2a1a');R(hx+5,hy+3,2,1,shade(hair,-.1));R(hx+hw,hy+5,1,1,skin);if(!sp.snout)R(hx+5,hy+6,2,1,fem?'#b86a6a':skD)}
+   if(sp.tusks){if(side)R(hx+6,hy+hh-1,1,2,'#f0ead8');else{R(hx+1,hy+hh-2,1,2,'#f0ead8');R(hx+6,hy+hh-2,1,2,'#f0ead8')}}
+   // cicatrices y marcas
+   const sc=sp.scar,mk=sp.mark;
+   if(sc==='eye'){if(side)R(hx+5,hy+2,1,4,'#a03a3a');else{R(hx+2,hy+2,1,4,'#a03a3a')}}
+   if(sc==='cheek'){if(side)R(hx+4,hy+5,2,1,'#a03a3a');else R(hx+5,hy+5,2,1,'#a03a3a')}
+   if(sc==='brow'){if(side)R(hx+5,hy+2,1,2,'#a03a3a');else R(hx+5,hy+2,1,2,'#a03a3a')}
+   if(mk==='freckles'){const fc=shade(skin,-.22);if(side){R(hx+4,hy+5,1,1,fc);R(hx+6,hy+5,1,1,fc)}else{R(hx+1,hy+5,1,1,fc);R(hx+3,hy+5,1,1,fc);R(hx+4,hy+5,1,1,fc);R(hx+6,hy+5,1,1,fc)}}
+   if(mk==='tribal'){const mc=shade(skin,-.5);if(side)R(hx+4,hy+4,1,3,mc);else{R(hx+1,hy+4,1,3,mc);R(hx+6,hy+4,1,3,mc)}}
+   if(mk==='runes'){const mc='#7ad8ff';R(hx+3,hy+1,2,1,mc);if(!side)R(hx+3,hy+2,1,1,mc)}
+   if(mk==='paint'){R(hx,hy+3,hw,2,'#a02020');R(hx,hy+4,hw,1,'#e8e0d0')}
+   if(sp.goliath){const mk2=shade(skin,.2);R(hx+1,hy+1,1,2,mk2);R(hx+6,hy+2,1,1,mk2);R(AL.x,AL.y+2,2,1,mk2);R(AR.x,AR.y+3,2,1,mk2);R(T.x+1,T.y+2,2,1,mk2)}
+   // vello facial
+   const fa=sp.facial;if(fa&&fa!=='none'){const fc=hair;
+    if(side){if(fa==='stubble')R(hx+4,hy+5,3,3,mixc(skin,fc,.35));else if(fa==='short'||fa==='goatee'){R(hx+3,hy+5,4,4,fc)}else if(fa==='long'){R(hx+3,hy+5,4,7,fc)}else if(fa==='moustache')R(hx+5,hy+5,3,1,fc)}
+    else{if(fa==='stubble'){R(hx+1,hy+5,6,3,mixc(skin,fc,.3))}else if(fa==='short'){R(hx,hy+5,hw,3,fc);R(hx+3,hy+6,2,1,skD)}else if(fa==='long'){R(hx,hy+5,hw,3,fc);R(hx+1,hy+8,hw-2,4,fc);R(hx+2,hy+12,hw-4,2,fc);R(hx+3,hy+6,2,1,skD)}else if(fa==='moustache'){R(hx+1,hy+5,6,1,fc)}else if(fa==='goatee'){R(hx+2,hy+6,4,1,fc);R(hx+3,hy+7,2,2,fc)}}}
+  }
+  // pelo
+  const hc=hair;if(hs!=='bald'&&!sp.snout&&!(E.head&&(E.head.k==='helm'||E.head.k==='greathelm'))){
+   const top=()=>{R(hx,hy-1,hw,3,hc);R(hx+1,hy-2,hw-2,1,hc);R(hx+1,hy-1,2,1,shade(hc,.2))};
+   if(back){
+    if(hs==='mohawk'){R(hx+3,hy-3,2,hh+1,hc)}else{R(hx,hy-1,hw,hh+1,hc);R(hx+1,hy-2,hw-2,1,hc);
+     if(hs==='long'||hs==='braids'){R(hx-1,hy+hh,hw+2,3,hc);R(hx,hy+hh+3,hw,2,hc)}
+     if(hs==='pony'){R(hx+3,hy+hh,2,5,hc);R(hx+3,hy+hh+5,2,1,shade(hc,-.2))}
+     if(hs==='bun'){R(hx+2,hy-4,4,3,hc);R(hx+2,hy-4,4,1,shade(hc,.2))}
+     if(hs==='curly'){R(hx-1,hy-2,hw+2,hh,hc)}
+     if(hs==='bob'){R(hx-1,hy+hh-1,hw+2,3,hc)}
+     if(hs==='braids'){for(let i=0;i<5;i++){R(hx-1+(i%2),hy+hh+i,1,1,shade(hc,-.2))}}}
+   }else if(side){
+    if(hs==='mohawk'){R(hx+2,hy-3,4,3,hc)}else{R(hx,hy-1,hw-1,3,hc);R(hx+1,hy-2,hw-3,1,hc);R(hx,hy+2,3,hh-4,hc);R(hx+5,hy+2,2,1,hc);
+     if(hs==='long'||hs==='braids'){R(hx-1,hy+hh-3,4,6,hc);R(hx-1,hy+hh+3,3,3,hc)}
+     if(hs==='pony'){R(hx-2,hy,2,2,hc);R(hx-3,hy+2,2,7,hc)}
+     if(hs==='bun'){R(hx+1,hy-4,4,3,hc)}
+     if(hs==='curly'){R(hx-1,hy-3,hw+1,6,hc);R(hx-1,hy+2,3,4,hc)}
+     if(hs==='bob'){R(hx-1,hy+hh-3,4,5,hc)}}
+   }else{
+    if(hs==='mohawk'){R(hx+3,hy-3,2,3,hc);R(hx+3,hy,2,2,hc)}
+    else{top();R(hx,hy+2,1,3,hc);R(hx+hw-1,hy+2,1,3,hc);R(hx+1,hy+2,3,1,hc);R(hx+5,hy+2,2,1,hc);
+     if(hs==='long'){R(hx-1,hy+1,2,hh+4,hc);R(hx+hw-1,hy+1,2,hh+4,hc)}
+     if(hs==='braids'){for(let i=0;i<8;i++){R(hx-1,hy+1+i,2,1,i%2?hc:shade(hc,-.25));R(hx+hw-1,hy+1+i,2,1,i%2?hc:shade(hc,-.25))}}
+     if(hs==='pony'){R(hx+hw,hy+1,1,2,hc)}
+     if(hs==='bun'){R(hx+2,hy-4,4,3,hc);R(hx+2,hy-4,4,1,shade(hc,.2))}
+     if(hs==='curly'){R(hx-1,hy-2,hw+2,5,hc);R(hx-1,hy+3,1,2,hc);R(hx+hw,hy+3,1,2,hc);R(hx+1,hy-3,hw-2,1,hc)}
+     if(hs==='bob'){R(hx-1,hy+1,2,hh-1,hc);R(hx+hw-1,hy+1,2,hh-1,hc)}}}
+  }
+  // escamas / cresta dracónida
+  if(sp.scales){const sc=shade(skin,.2);if(side){R(hx+1,hy-1,5,1,skD);R(hx,hy,2,3,skD)}else{R(hx+1,hy-1,hw-2,1,skD);R(hx,hy,1,3,skD);R(hx+hw-1,hy,1,3,skD)}if(!back)R(hx+3,hy+1,2,1,sc)}
+  // cuernos
+  if(sp.horns&&sp.horns!=='none'){const c=sp.hornC||'#2a2420',hh2=shade(c,.3);
+   if(sp.horns==='curved'){if(side){R(hx+1,hy-3,1,3,c);R(hx,hy-4,1,1,c)}else{R(hx,hy-3,1,3,c);R(hx-1,hy-4,1,1,c);R(hx+hw-1,hy-3,1,3,c);R(hx+hw,hy-4,1,1,c)}}
+   else if(sp.horns==='ram'){if(side){R(hx,hy-1,2,2,c);R(hx-1,hy+1,1,2,c)}else{R(hx-2,hy,2,2,c);R(hx-2,hy+2,1,2,c);R(hx+hw,hy,2,2,c);R(hx+hw+1,hy+2,1,2,c)}}
+   else{if(side)R(hx+1,hy-4,1,4,c);else{R(hx+1,hy-4,1,4,c);R(hx+hw-2,hy-4,1,4,c)}}}
+  // tocado
+  const H=E.head;if(H){const c=H.c,k=H.k;
+   if(k==='hood'){R(hx-1,hy-2,hw+2,5,c);R(hx-1,hy+3,2,hh-2,c);R(hx+hw-1,hy+3,2,hh-2,c);if(side){R(hx-1,hy+1,3,hh+1,c)}if(back)R(hx-1,hy-2,hw+2,hh+4,c);R(hx-1,hy-2,hw+2,1,shade(c,.2))}
+   else if(k==='cap'){R(hx-1,hy-2,hw+2,3,c);R(hx,hy-3,hw,1,c);R(hx-1,hy+1,hw+2,1,shade(c,-.25));R(hx+3,hy-4,2,1,shade(c,.2))}
+   else if(k==='hat'||k==='hatp'){R(hx-3,hy,hw+6,1,shade(c,-.15));R(hx-2,hy-1,hw+4,1,c);R(hx,hy-4,hw,3,c);R(hx,hy-2,hw,1,shade(c,-.3));if(k==='hatp'){R(hx+hw-1,hy-6,1,3,'#e8e0d0');R(hx+hw,hy-7,1,2,'#e8e0d0')}}
+   else if(k==='wiz'){R(hx-3,hy,hw+6,1,shade(c,-.15));R(hx-2,hy-1,hw+4,1,c);R(hx,hy-3,hw,2,c);R(hx+1,hy-5,hw-2,2,c);R(hx+2,hy-7,hw-4,2,c);R(hx+3,hy-9,2,2,c);R(hx,hy-1,hw,1,'#c8a84a')}
+   else if(k==='helm'||k==='greathelm'){R(hx-1,hy-2,hw+2,5,c);R(hx-1,hy-2,hw+2,1,shade(c,.25));R(hx-1,hy+3,2,hh-3,c);R(hx+hw-1,hy+3,2,hh-3,c);if(back)R(hx-1,hy-2,hw+2,hh+3,c);
+    if(k==='greathelm'&&!back){R(hx-1,hy+3,hw+2,hh-2,c);R(hx+1,hy+5,hw-2,1,'#14141a');R(hx+hw/2-1,hy+6,2,3,shade(c,-.25))}
+    else if(!back&&!side)R(hx+3,hy+3,2,3,shade(c,-.2))}
+   else if(k==='circlet'){R(hx,hy+1,hw,1,c);R(hx+3,hy,2,2,'#7ad8ff')}
+   else if(k==='crown'){R(hx,hy-1,hw,2,c);R(hx,hy-3,1,2,c);R(hx+3,hy-3,2,2,c);R(hx+hw-1,hy-3,1,2,c);R(hx+3,hy-1,2,1,'#e04a4a')}}
+ };
+ head();
+ if(side){drawArm(AL,false);}
+ // vuelve a dibujar arma en lado frontal para side
+ if(side){weapon(AL.x+AL.w,AL.y+7,true)}
+}
+
+// quita costuras y añade contorno oscuro a una celda del atlas
+function outlineCell(ctx,x0,y0,w,h,col){const id=ctx.getImageData(x0,y0,w,h),d=id.data;const solid=new Uint8Array(w*h);for(let i=0;i<w*h;i++)solid[i]=d[i*4+3]>128?1:0;
+ const out=[];for(let y=0;y<h;y++)for(let x=0;x<w;x++){if(solid[y*w+x])continue;let n=false;for(const[dx,dy]of[[1,0],[-1,0],[0,1],[0,-1]]){const xx=x+dx,yy=y+dy;if(xx>=0&&yy>=0&&xx<w&&yy<h&&solid[yy*w+xx])n=true}if(n)out.push(y*w+x)}
+ for(const p of out){d[p*4]=col[0];d[p*4+1]=col[1];d[p*4+2]=col[2];d[p*4+3]=255}ctx.putImageData(id,x0,y0)}
+
+function charKey(sp){const e=sp.eq||{};return JSON.stringify([sp.sex,sp.sp,sp.skin,sp.hair,sp.hairC,sp.eyeC,sp.facial,sp.scar,sp.mark,sp.build,sp.ears,sp.horns,sp.hornC,sp.tusks,sp.tail,sp.snout,sp.scales,sp.goliath,e.head,e.body,e.legs,e.feet,e.cloak,e.main,e.off,e.neck])}
+const SHEETS={};
+// devuelve {rect,fw,fh,key}
+function charSheet(sp){const k=charKey(sp);if(SHEETS[k])return SHEETS[k];
+ const c=mkc(FW*4,FH*3),ctx=c.getContext('2d');
+ for(let d=0;d<3;d++)for(let f=0;f<4;f++){drawChar(ctx,f*FW,d*FH,sp,d,f);outlineCell(ctx,f*FW,d*FH,FW,FH,[26,18,14])}
+ SHEETS[k]={rect,fw:FW,fh:FH,cols:4,key:k,canvas:c};return SHEETS[k]}
+function sheetUV(sh,col,row){const A=GL.ATL;const x=sh.rect.x+col*sh.fw,y=sh.rect.y+row*sh.fh;return[(x+.02)/A,(y+.02)/A,(x+sh.fw-.02)/A,(y+sh.fh-.02)/A]}
+
+// ---------- criaturas (vista lateral derecha) ----------
+const CR_DEF={
+conejo:{cw:20,ch:14,coat:['#a08060','#7a6a58'],bel:'#e0d4c0'},ciervo:{cw:30,ch:28,coat:['#a8703a','#8a5a30'],bel:'#e8d8b8'},jabali:{cw:28,ch:18,coat:['#5a4636','#3a2e26'],bel:'#8a7a66'},
+lobo:{cw:28,ch:20,coat:['#7a7a80','#5a5a62'],bel:'#b8b8c0'},zorro:{cw:26,ch:16,coat:['#c8662a','#a8501e'],bel:'#f0e8d8'},cabra:{cw:26,ch:24,coat:['#8a7a62','#6a5a46'],bel:'#c8bca4'},
+gato:{cw:20,ch:16,coat:['#6a6a6a','#c8802a'],bel:'#e8e0d0'},oveja:{cw:24,ch:18,coat:['#e8e4d8','#cfc8b8'],bel:'#c8c0b0'},cabra_d:{cw:22,ch:20,coat:['#e0d8c8','#a89a84'],bel:'#f4f0e8'},
+cuervo:{cw:18,ch:14,coat:['#2a2a34','#1a1a24'],bel:'#3a3a46'},gaviota:{cw:20,ch:14,coat:['#e8e8ee','#c8ccd4'],bel:'#fff'},rata:{cw:22,ch:12,coat:['#6a6258','#4a443c'],bel:'#8a8478'},
+murcielago:{cw:26,ch:18,coat:['#4a3a5a','#2a2036'],bel:'#6a5a7a'},vibora:{cw:30,ch:16,coat:['#6a8a3a','#8a7a2a'],bel:'#c8c070'},gallina:{cw:16,ch:14,coat:['#e8e0d0','#a8702a'],bel:'#fff'},
+vibria:{cw:56,ch:44,coat:['#3f8a4a','#c8a82a'],bel:'#e0d080'}
+};
+function drawCreature(ctx,ox,oy,sp,gn,fr){
+ const df=CR_DEF[sp];const R=(x,y,w,h,c)=>{ctx.fillStyle=c;ctx.fillRect(ox+Math.round(x),oy+Math.round(y),w,h)};
+ const t=gn?gn.coat:.5;const body=mixc(df.coat[0],df.coat[1],t),dk=shade(body,-.25),lt=shade(body,.18),bel=df.bel;const step=(fr&1);const w=df.cw,h=df.ch;
+ const ell=(cx,cy,rx,ry,c)=>{for(let y=-ry;y<=ry;y++)for(let x=-rx;x<=rx;x++){if((x*x)/(rx*rx+.3)+(y*y)/(ry*ry+.3)<=1.05)R(cx+x,cy+y,1,1,c)}};
+ const legs=(xs,len,y0,c)=>{xs.forEach((x,i)=>{const lift=((i+(fr===1?0:fr===3?1:0))%2===0&&step)?1:0;R(x,y0,2,len-lift,i<2?dk:c)})};
+ const eye=(x,y)=>R(x,y,1,1,'#14100c');
+ if(sp==='conejo'){ell(9,9,5,3,body);R(5,8,4,3,lt);ell(14,7,3,3,body);R(13,1,1,5,body);R(15,0,1,6,body);R(13,2,1,3,'#e8a8a8');R(16,8,1,1,'#2a1a14');eye(15,6);R(3,7,3,3,'#f4f0e8');R(4,12,2,1,dk);R(10,12,2,1,dk);R(7,12+(step?0:0),2,1,dk);R(14,12,2,1,dk);R(7,10,6,2,bel)}
+ else if(sp==='ciervo'){ell(13,15,8,4,body);R(7,17,12,2,bel);R(20,6,3,10,body);ell(24,6,3,3,body);R(26,7,3,2,lt);R(28,8,1,1,'#14100c');R(23,2,1,3,body);R(25,2,1,3,body);const a='#e0d0a8';R(21,0,1,4,a);R(20,0,1,1,a);R(25,0,1,4,a);R(26,0,1,1,a);R(24,2,1,1,a);R(24,4,1,1,body);eye(25,5);
+  for(let i=0;i<7;i++)R(9+i*2,12+(i%2),1,1,'#f0e8d0');legs([7,10,17,20],10,17,body);R(5,13,2,3,lt)}
+ else if(sp==='jabali'){ell(14,10,10,5,body);R(5,6,18,2,dk);for(let i=0;i<9;i++)R(5+i*2,4+(i%2),1,3,dk);ell(23,11,4,4,body);R(26,12,3,3,dk);R(27,13,1,1,'#14100c');R(25,14,3,1,'#f0ead8');R(26,13,1,2,'#f0ead8');eye(24,9);R(21,6,2,3,dk);legs([6,9,19,22],5,13,body);R(3,8,2,2,dk)}
+ else if(sp==='lobo'){ell(12,11,8,4,body);R(5,13,12,2,bel);ell(21,9,3,3,body);R(23,10,4,2,lt);R(26,10,1,1,'#14100c');R(20,4,2,3,dk);R(22,5,1,1,dk);eye(22,8);R(5,10,3,5,body);R(2,12,3,5,dk);R(1,15,2,2,dk);legs([6,9,16,19],6,14,body);R(18,7,3,3,body)}
+ else if(sp==='zorro'){ell(11,9,6,3,body);R(7,11,8,1,bel);ell(18,7,3,3,body);R(20,8,4,2,body);R(23,8,1,1,'#14100c');R(18,2,2,3,body);R(20,3,1,1,dk);R(21,9,2,1,'#f4eee0');eye(20,6);ell(4,9,4,3,body);R(0,9,3,3,'#f4eee0');legs([6,8,14,16],5,11,dk)}
+ else if(sp==='cabra'||sp==='cabra_d'){const big=sp==='cabra';ell(12,12,7,4,body);R(7,14,10,2,bel);R(17,6,3,8,body);ell(21,6,3,3,body);R(23,8,2,3,bel);R(24,10,1,2,bel);R(24,7,1,1,'#14100c');const hc=big?'#d8c8a0':'#8a7a66';R(18,2,2,3,hc);R(17,0,2,3,hc);R(16,-0,1,1,hc);if(big){R(15,1,2,1,hc)}eye(22,5);legs([6,9,14,16],big?9:8,14,dk);R(5,10,2,2,bel)}
+ else if(sp==='gato'){ell(9,9,5,3,body);ell(15,7,3,3,body);R(14,3,1,2,body);R(17,3,1,2,body);R(15,4,1,1,'#e8a8a8');eye(16,6);R(17,8,1,1,'#e8a8a8');R(4,6,1,5,body);R(3,3,1,4,body);R(2,3,2,1,dk);legs([6,8,12,14],3,10,dk);R(7,9,6,1,bel)}
+ else if(sp==='oveja'){for(let i=0;i<7;i++)ell(6+i*2,10+(i%2),3,4,body);R(6,13,14,1,dk);ell(21,9,3,3,'#3a3030');R(23,10,2,2,'#4a3a3a');R(22,6,2,2,'#3a3030');eye(22,8);legs([6,9,16,19],5,15,'#3a3030')}
+ else if(sp==='cuervo'||sp==='gaviota'){const c2=sp==='gaviota'?'#aab2c0':dk;ell(8,8,5,3,body);R(3,6,3,3,c2);const fl=step;R(5,fl?3:5,6,fl?3:2,c2);ell(14,5,2,2,body);R(16,5,3,1,sp==='gaviota'?'#e8b82a':'#3a3a3a');eye(15,4);R(7,11,1,3,'#8a6a3a');R(10,11,1,3,'#8a6a3a');if(sp==='gaviota'){R(3,7,2,2,'#3a3a44')}}
+ else if(sp==='rata'){ell(9,8,5,3,body);R(5,9,8,1,bel);ell(15,8,2,2,body);R(17,9,3,1,lt);R(19,9,1,1,'#e8a0a0');R(14,5,2,2,'#d8a0a0');eye(16,7);R(0,10,5,1,'#d8a0a0');R(0,9,1,1,'#d8a0a0');R(5,11,2,1,dk);R(12,11,2,1,dk);R(6,11,1,1,dk)}
+ else if(sp==='murcielago'){ell(13,9,2,3,body);ell(13,6,2,2,body);R(11,3,1,2,dk);R(15,3,1,2,dk);R(12,6,1,1,'#ff5a5a');R(14,6,1,1,'#ff5a5a');
+  const fl=step?-3:2;for(let i=0;i<8;i++){R(11-i,7+Math.round(i*fl/8)+(i>5?1:0),1,3+(i%2),dk);R(15+i,7+Math.round(i*fl/8)+(i>5?1:0),1,3+(i%2),dk)}R(12,12,1,2,dk);R(14,12,1,2,dk)}
+ else if(sp==='vibora'){const L=26;for(let i=0;i<L;i++){const y=7+Math.round(Math.sin(i*.55+(fr*1.2))*2.5);const c=(i%4<2)?body:mixc(body,'#4a5a28',.5);R(i,y,2,3,c);R(i,y+2,2,1,dk)}R(L,6+Math.round(Math.sin(L*.55+fr*1.2)*2.5),4,4,lt);R(L+3,8+Math.round(Math.sin(L*.55+fr*1.2)*2.5),1,1,'#14100c');R(L+3,7+Math.round(Math.sin(L*.55+fr*1.2)*2.5),1,1,'#ffd84a');if(step)R(L+4,9+Math.round(Math.sin(L*.55+fr*1.2)*2.5),2,1,'#e04a4a')}
+ else if(sp==='gallina'){ell(7,9,4,3,body);R(10,5,2,5,body);ell(11,4,2,2,body);R(13,4,2,1,'#e8a82a');R(11,1,2,2,'#d83a3a');eye(12,3);R(3,6,2,4,mixc(body,'#8a5a2a',.5));R(6,12,1,2,'#d8a82a');R(8,12,1,2,'#d8a82a')}
+ else if(sp==='vibria'){// serpiente alada grande
+  const fl=step?-8:5;const seg=(i)=>({x:6+i*1.6,y:30+Math.round(Math.sin(i*.45+fr*1.3)*5)});
+  for(let i=0;i<24;i++){const p=seg(i);const rr=i<20?3:2;R(p.x,p.y,rr+1,rr+2,(i%3===0)?lt:body);R(p.x,p.y+rr+1,rr+1,1,dk)}
+  const hp=seg(24);R(hp.x,hp.y-3,7,6,body);R(hp.x+5,hp.y-1,4,3,lt);R(hp.x+7,hp.y,1,1,'#14100c');R(hp.x+3,hp.y-2,1,1,'#ffd84a');R(hp.x+1,hp.y-5,1,3,'#e0d0a8');R(hp.x+3,hp.y-5,1,3,'#e0d0a8');if(step)R(hp.x+9,hp.y+1,3,1,'#e04a4a');
+  // alas
+  const wc='#2a6a38';for(let i=0;i<16;i++){R(16+i*1,18-i+Math.round(i*fl/10),1,10+Math.round(i*.4),i%3?wc:shade(wc,.25))}R(14,24,6,4,body);
+  R(2,32,6,2,dk);R(0,33,3,2,dk)}
+}
+function creatureSheet(sp,gn){const df=CR_DEF[sp];const key='cr|'+sp+'|'+(gn?Math.round(gn.coat*6):3);if(SHEETS[key])return SHEETS[key];
+ const c=mkc(df.cw*4,df.ch),ctx=c.getContext('2d');for(let f=0;f<4;f++){drawCreature(ctx,f*df.cw,0,sp,gn,f);outlineCell(ctx,f*df.cw,0,df.cw,df.ch,[26,18,14])}
+ const rect=GL.allocSprite(c);SHEETS[key]={rect,fw:df.cw,fh:df.ch,cols:4,key,canvas:c};return SHEETS[key]}
+function V(it){return ITEMS[it]?ITEMS[it].vis:undefined}
+function mk(over){return Object.assign({sex:'m',sp:'human',skin:'#d9a273',hair:'short',hairC:'#6b4423',eyeC:'#2f6b3a',facial:'none',scar:'none',mark:'none',build:1,eq:{}},over)}
+const chars=[
+ mk({eq:{body:V('cota_malla'),legs:V('pantalon'),feet:V('botas'),main:V('espada_larga'),off:V('escudo'),head:V('casco_hierro')}}),
+ mk({sex:'f',hair:'long',hairC:'#b83a1c',eq:{body:V('tunica_ropaje'),feet:V('sandalias'),main:V('baston'),off:V('libro'),head:V('sombrero')}}),
+ mk({sp:'elf',ears:'long',skin:'#f6e0cc',hair:'pony',hairC:'#e8d28a',eq:{body:V('cuero'),legs:V('pantalon'),feet:V('botas_altas'),main:V('arco_largo'),cloak:V('capa_viaje'),head:V('capucha')}}),
+ mk({sp:'dwarf',facial:'long',hairC:'#a2682a',hair:'braids',build:2,eq:{body:V('placas'),legs:V('calzas'),feet:V('botas'),main:V('hacha_grande'),head:V('yelmo')}}),
+ mk({sp:'orc',skin:'#7a9a5a',tusks:1,hair:'mohawk',hairC:'#1a1410',mark:'paint',build:2,eq:{body:V('pieles'),feet:V('botas'),main:V('hacha_mano'),legs:V('calzones')}}),
+ mk({sp:'tiefling',sex:'f',skin:'#9b3c6b',horns:'ram',hornC:'#2a2420',tail:1,hair:'bob',hairC:'#e8e8e8',eq:{body:V('vestido'),feet:V('zapatos'),main:V('daga'),neck:V('amuleto')}}),
+ mk({sp:'dragonborn',skin:'#b83a2a',snout:1,scales:1,hair:'bald',eq:{body:V('tunica_noble'),legs:V('pantalon'),feet:V('botas'),main:V('estoque'),head:V('corona')}}),
+ mk({sp:'goliath',skin:'#a8a8b0',goliath:1,hair:'bald',mark:'tribal',build:2,eq:{body:V('tunica'),legs:V('pantalon'),main:V('martillo')}}),
+ mk({sex:'f',sp:'halfling',hair:'curly',hairC:'#3b2616',mark:'freckles',eq:{body:V('tunica_fina'),feet:V('zapatos'),main:V('laud'),head:V('sombrero_pluma')}}),
+];
+const cv=document.getElementById('c');const S=5;cv.width=(24*4*S+10)*3;cv.height=(32*3*S+10)*Math.ceil(chars.length/3)+ (20*5*S+20);
+const X=cv.getContext('2d');X.imageSmoothingEnabled=false;
+chars.forEach((sp,i)=>{const c=mkc(96,96),x=c.getContext('2d');for(let d=0;d<3;d++)for(let f=0;f<4;f++){drawChar(x,f*24,d*32,sp,d,f);outlineCell(x,f*24,d*32,24,32,[26,18,14])}
+ X.drawImage(c,(i%3)*(96*S+10),Math.floor(i/3)*(96*S+10),96*S,96*S)});
+const ys=Math.ceil(chars.length/3)*(96*S+10)+10;let cx=0;
+['conejo','ciervo','jabali','lobo','zorro','cabra','gato','oveja','cuervo','gaviota','rata','murcielago','vibora','gallina'].forEach((n,i)=>{const df=CR_DEF[n];const c=mkc(df.cw*2,df.ch),x=c.getContext('2d');for(let f=0;f<2;f++){drawCreature(x,f*df.cw,0,n,{coat:.3},f);outlineCell(x,f*df.cw,0,df.cw,df.ch,[26,18,14])}
+ const row=Math.floor(i/5);X.drawImage(c,(i%5)*(60*S/1.2),ys+row*(34*S/1.0)*0.7,df.cw*2*S/1.5*1.5/1.5*1.0,df.ch*S/1.5*1.0)});
+</script></body>

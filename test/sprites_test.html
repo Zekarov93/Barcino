@@ -1,0 +1,29 @@
+<!doctype html><meta charset=utf-8><body style="background:#4a6a4a;margin:0"><canvas id=c width=1100 height=520 style="image-rendering:pixelated"></canvas>
+<script>
+'use strict';
+const GL={allocSprite(c){return{x:0,y:0}},ATL:2048};
+</script>
+<script src="../src/00_core.js"></script><script src="../src/01_data_rules.js"></script><script src="../src/02_data_world.js"></script><script src="../src/04_chars.js"></script>
+<script>
+const cv=document.getElementById('c'),ctx=cv.getContext('2d');ctx.imageSmoothingEnabled=false;
+const S=3;
+function show(sp,x,y){const c=mkc(FW*4,FH*3),g=c.getContext('2d');for(let d=0;d<3;d++)for(let f=0;f<4;f++){drawChar(g,f*FW,d*FH,sp,d,f);outlineCell(g,f*FW,d*FH,FW,FH,[26,18,14])}ctx.drawImage(c,0,0,c.width,c.height,x,y,c.width*2,c.height*2)}
+const I=(id,c)=>{const it=ITEMS[id];return Object.assign({},it.vis,c?{c}:{})};
+const base={sex:'m',sp:'human',skin:'#efc29b',hair:'short',hairC:'#6b4423',eyeC:'#2f6b3a',facial:'none',scar:'none',mark:'none',build:1,ears:'normal'};
+const L=[
+ Object.assign({},base,{eq:{body:I('cota_malla'),legs:I('pantalon'),feet:I('botas'),main:I('espada_larga'),off:I('escudo'),head:I('casco_hierro'),cloak:I('capa')}}),
+ Object.assign({},base,{sex:'f',hair:'long',hairC:'#b83a1c',eq:{body:I('tunica_ropaje'),feet:I('sandalias'),main:I('baston'),head:I('sombrero'),off:I('libro')}}),
+ Object.assign({},base,{sp:'dwarf',facial:'long',hairC:'#b83a1c',hair:'braids',build:2,eq:{body:I('cuero_tachonado'),legs:I('pantalon'),feet:I('botas'),main:I('hacha_grande')}}),
+ Object.assign({},base,{sp:'elf',sex:'f',ears:'long',skin:'#f6e0cc',hair:'pony',hairC:'#e8d28a',eq:{body:I('cuero'),legs:I('pantalon'),feet:I('botas_altas'),main:I('arco_largo'),cloak:I('capa_viaje')}}),
+ Object.assign({},base,{sp:'tiefling',skin:'#9b3c6b',horns:'ram',tail:1,hair:'mohawk',hairC:'#1a1410',eq:{body:I('tunica_noble'),legs:I('pantalon'),feet:I('zapatos'),main:I('estoque'),neck:I('amuleto')}}),
+ Object.assign({},base,{sp:'orc',skin:'#7a9a5a',tusks:1,hair:'bald',scar:'eye',mark:'tribal',build:2,eq:{body:I('pieles'),legs:I('pantalon'),feet:I('botas'),main:I('maza')}}),
+ Object.assign({},base,{sp:'dragonborn',skin:'#b83a2a',snout:1,scales:1,hair:'bald',eq:{body:I('laminas'),legs:I('calzas'),feet:I('botas'),main:I('lanza'),head:I('yelmo')}}),
+ Object.assign({},base,{sex:'f',hair:'bun',hairC:'#1a1410',facial:'none',mark:'freckles',eq:{body:I('vestido'),legs:null,feet:I('zapatos'),head:I('corona'),off:I('laud')}}),
+ Object.assign({},base,{hair:'curly',hairC:'#2c3e6b',facial:'goatee',skin:'#8a5532',eq:{body:I('tunica'),legs:I('calzones'),feet:I('sandalias'),head:I('sombrero_pluma'),main:I('daga'),off:I('antorcha')}}),
+ Object.assign({},base,{sex:'f',sp:'halfling',hair:'bob',hairC:'#a2682a',eq:{body:I('tunica_fina'),legs:I('falda'),feet:I('zapatos'),head:I('capucha'),main:I('hacha_mano')}}),
+];
+L.forEach((sp,i)=>show(sp,(i%5)*215+4,Math.floor(i/5)*200+4));
+// criaturas
+const cr=['conejo','ciervo','jabali','lobo','zorro','cabra','gato','oveja','cuervo','rata','murcielago','vibora','gallina','vibria','gaviota','cabra_d'];
+let cx=4,cy=410;
+</script>

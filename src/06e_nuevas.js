@@ -1,0 +1,97 @@
+// ===================== ZONAS NUEVAS: Montseny, Penedès y Egara =====================
+ZINFO.montseny={n:'Santa Fe del Montseny',biome:'forest',settle:'town',cols:44,rows:44,amp:1.6,fd:.9,desc:'Un caserío de carboneros, vidrieros y pastores en un hayedo húmedo bajo el Matagalls. Las fuentes nunca se secan, los pozos de hielo guardan el invierno y, dicen, las Goges peinan el agua del Gorg Negre.'};
+ZINFO.penedes={n:'Vilafranca del Penedès',biome:'hills',settle:'town',wall:{style:'stone2'},cols:44,rows:44,amp:.45,fd:.55,desc:'Villa amurallada entre viñedos: bodegas, castells humanos, ferias de vino y un dragón de fuego que baila por Sant Fèlix.'};
+ZINFO.egara={n:'Egara (Terrassa)',biome:'hills',settle:'town',wall:{style:'stone'},cols:44,rows:44,amp:.5,fd:.5,desc:'Ciudad de pelaires y tejedores sobre una antigua sede visigoda: tres iglesias pre-románicas, un torrente de lavanderas y una cripta olvidada.'};
+['montseny','penedes','egara'].forEach(z=>ZIDS.push(z));
+(function(){const L=[['montseny','collserola'],['montseny','sant_cugat'],['penedes','martorell'],['penedes','garraf'],['egara','sant_cugat'],['egara','cam_collbato']];ZIDS.forEach(z=>TRAVEL[z]=TRAVEL[z]||{});L.forEach(([a,b])=>{TRAVEL[a][b]=1;TRAVEL[b][a]=1})})();
+const LEGACY2=()=>typeof G!=='undefined'&&G&&G.legacy2;
+function linkExits2(id,fn){const old=ZONE_BUILD[id];ZONE_BUILD[id]=function(z){old(z);if(!LEGACY2())fn(z)}}
+linkExits2('collserola',z=>{exitR(z,20,0,4,1,'montseny',21.5,41.5);z.arrive.montseny={x:21.5,y:2.5}});
+linkExits2('sant_cugat',z=>{exitR(z,20,0,4,1,'montseny',2.5,21.5);z.arrive.montseny={x:22,y:2.5};exitR(z,43,20,1,4,'egara',2.5,22.5);z.arrive.egara={x:41.5,y:22.5}});
+linkExits2('martorell',z=>{exitR(z,20,39,4,1,'penedes',21.5,2.5);z.arrive.penedes={x:21.5,y:37.5}});
+linkExits2('garraf',z=>{exitR(z,0,20,1,4,'penedes',41.5,22);z.arrive.penedes={x:2.5,y:22}});
+linkExits2('cam_collbato',z=>{exitR(z,0,20,1,4,'egara',41.5,22);z.arrive.egara={x:2.5,y:22}});
+const HSTY=['white','ochre','stone','timber','white','ochre','stone'];
+// ---------- MONTSENY ----------
+ZONE_BUILD.montseny=function(z){
+ fillR(z,10,13,22,15,T.G0,true);floorR(z,15,18,12,6,T.GRAVEL);
+ waterR(z,34,0,2,14);waterR(z,33,14,3,6);waterR(z,33,30,8,6);waterR(z,36,26,4,4);
+ roadPoly(z,[[21.5,43],[21.5,34],[21.5,26],[21,21]],2,T.PATH);roadPoly(z,[[0,21.5],[10,21.5],[16,21]],2,T.PATH);roadPoly(z,[[27,21],[32,22],[40,22]],2,T.PATH);roadPoly(z,[[21,18],[21,8],[28,5]],2,T.PATH);roadPoly(z,[[16,21],[9,28],[8,34]],2,T.PATH);roadPoly(z,[[27,21],[28,30],[24,34]],2,T.PATH);
+ bld(z,{id:'hostal_sf',name:'Hostal de Santa Fe',kind:'inn',x:11,y:14,w:7,h:5,door:3,style:'timber',roof:'thatch',floors:2,shop:'inn',rent:5});
+ bld(z,{id:'vidrio_sf',name:'Fábrica de Vidrio de Can Marc',kind:'shop',x:22,y:13,w:6,h:5,door:2,style:'rockc',roof:'slate',shop:'general',st:['forge']});
+ bld(z,{id:'ermita_sf',name:'Ermita de Santa Fe',kind:'chapel',x:8,y:23,w:4,h:4,door:2,style:'stone',roof:'terra'});
+ bld(z,{id:'botica_sf',name:'Herbolario de la Fageda',kind:'apothecary',x:28,y:25,w:4,h:4,door:2,style:'white',roof:'terra',shop:'apo',st:['alchemy']});
+ bld(z,{id:'granja_sf',name:'Masía de Can Casas',kind:'farm',x:5,y:31,w:6,h:5,door:2,style:'ochre',roof:'terra',prod:'farm',floors:2,shop:'farm'});
+ bld(z,{id:'aserradero_sf',name:'Carbonera y Aserradero del Turó',kind:'lumber',x:14,y:30,w:5,h:4,door:2,style:'timber',roof:'thatch',prod:'lumber'});
+ bld(z,{id:'caza_sf',name:'Refugio de Cazadores',kind:'hunter',x:29,y:8,w:4,h:3,door:1,style:'timber',roof:'thatch'});
+ bld(z,{id:'guardabosques_sf',name:'Puesto de Guardabosques',kind:'barracks',x:12,y:6,w:5,h:4,door:2,style:'stone',roof:'slate'});
+ bld(z,{id:'pou_gel',name:'Pou de Glaç',kind:'landmark',x:36,y:17,w:4,h:4,style:'rockc',roof:'thatch',floors:2});
+ bld(z,{id:'bruja_matagalls',name:'Cabaña de la Fada del Matagalls',kind:'house',x:37,y:6,w:3,h:3,door:1,style:'timber',roof:'thatch'});
+ [[18,26],[23,28],[5,17],[24,32]].forEach((p,i)=>bld(z,{id:'casa_sf'+(i+1),name:['Casa del Faig','Casa de la Fageda','Ca l\'Avet','Casa dels Carboners'][i],kind:'house',x:p[0],y:p[1],w:4,h:4,door:1,style:HSTY[i],roof:i%2?'thatch':'terra',forSale:i===3?240:undefined}));
+ plot(z,'sf_p1',3,38,8,5,150,'Bancales del Roure',0);plot(z,'sf_p2',24,38,8,5,130,'Prado de la Mare',0);
+ for(let i=0;i<2;i++)stall(z,'sfst'+i,[17.5,19.5][i],21.5);
+ [[16,17],[26,22],[21,30],[13,22]].forEach(p=>prop(z,'lamp',p[0]+.5,p[1]+.5));
+ prop(z,'fountain',21.5,21.5,{solid:1,deco:1});prop(z,'well',16.5,28.5,{solid:1});prop(z,'campfire',27.5,28.5,{});
+ [[19,19],[26,20],[10,20],[30,24]].forEach(p=>prop(z,'barrel',p[0]+.5,p[1]+.5,{solid:1}));prop(z,'cart',25.5,26.2,{});prop(z,'haystack',6.5,30.5,{solid:1});
+ for(let i=0;i<14;i++)prop(z,'flowers',[6,9,14,18,22,26,30,12,8,34,38,16,40,20][i]+.5,[12,16,26,12,24,30,14,34,20,24,28,36,10,4][i]+.5,{v:i});
+ rockyDeco(z,[],[[4,6],[40,36],[2,22],[34,40],[40,4],[26,2]],[]);
+ exitR(z,20,43,4,1,'collserola',21.5,2.5);exitR(z,0,20,1,4,'sant_cugat',22,2.5);
+ z.arrive={collserola:{x:21.5,y:41},sant_cugat:{x:2.5,y:21.5}};z.spawn={x:21.5,y:41};
+ z.spots={plaza:{x:21,y:22},market:{x:18.5,y:22},patrol:[[21,40],[21,22],[12,21],[30,22]],beggar:[[16,24]]};
+};
+// ---------- PENEDÈS ----------
+ZONE_BUILD.penedes=function(z){
+ floorR(z,14,15,16,11,T.FLAG);floorR(z,20,26,4,1,T.COBBLE);
+ roadPoly(z,[[21.5,0],[21.5,15]],3,T.COBBLE);roadPoly(z,[[22,26],[22,43]],2,T.PATH);roadPoly(z,[[43,21.5],[30,21.5]],2,T.COBBLE);roadPoly(z,[[14,21.5],[4,21.5]],2,T.PATH);roadPoly(z,[[21.5,8],[8,8]],2,T.PATH);roadPoly(z,[[21.5,8],[36,8]],2,T.PATH);roadPoly(z,[[22,32],[8,32]],2,T.PATH);roadPoly(z,[[22,32],[36,32]],2,T.PATH);
+ bld(z,{id:'ayto_pn',name:'Casa de la Vila',kind:'ayuntamiento',x:14,y:4,w:7,h:6,door:3,style:'stone',roof:'goth',floors:3,fac:'concejo'});
+ bld(z,{id:'basilica_pn',name:'Basílica de Santa Maria',kind:'temple',x:30,y:3,w:6,h:8,door:2,style:'stone',roof:'goth',floors:4,tall:1});
+ bld(z,{id:'mercado_pn',name:'Mercat del Vi i la Vinya',kind:'shop',x:31,y:14,w:6,h:5,door:2,style:'ochre',roof:'terra',floors:2,shop:'general',fac:'mercaderes'});
+ bld(z,{id:'fonda_pn',name:'Fonda dels Castellers',kind:'inn',x:6,y:15,w:7,h:5,door:3,style:'timber',roof:'terra',floors:2,shop:'inn',rent:7});
+ bld(z,{id:'forja_pn',name:'Ferrería del Penedès',kind:'smith',x:5,y:23,w:5,h:4,door:2,style:'brick',roof:'slate',shop:'smith',fac:'artesanos',st:['forge']});
+ bld(z,{id:'forn_pn',name:'Forn de la Plaça',kind:'bakery',x:31,y:22,w:4,h:4,door:1,style:'white',roof:'terra',prod:'bakery',shop:'bread',st:['kitchen']});
+ bld(z,{id:'botica_pn',name:'Botica de Sant Fèlix',kind:'apothecary',x:36,y:22,w:4,h:4,door:2,style:'white',roof:'terra',shop:'apo',st:['alchemy']});
+ bld(z,{id:'cooperativa_pn',name:'Celler de la Cooperativa',kind:'farm',x:4,y:4,w:7,h:6,door:3,style:'ochre',roof:'terra',prod:'farm',floors:2,shop:'farm'});
+ bld(z,{id:'castellers_pn',name:'Local dels Castellers',kind:'house',x:15,y:28,w:6,h:4,door:2,style:'brick',roof:'terra',floors:2});
+ bld(z,{id:'cuartel_pn',name:'Cuartel de la Vila',kind:'barracks',x:37,y:30,w:5,h:4,door:2,style:'stone',roof:'slate'});
+ bld(z,{id:'castell_pn',name:'Torre del Castell',kind:'landmark',x:6,y:29,w:5,h:5,style:'dark',roof:'goth',floors:5,tall:2});
+ bld(z,{id:'molino_pn',name:'Molino de la Riera',kind:'mill',x:25,y:33,w:4,h:4,door:1,style:'stone',roof:'thatch',prod:'mill'});
+ [[12,34],[16,36],[28,28],[33,36],[38,10],[11,10]].forEach((p,i)=>bld(z,{id:'casa_pn'+(i+1),name:['Casa dels Cellers','Casa de la Dolça','Casa del Bota','Casa del Ceps','Casa de l\'Enxaneta','Casa de les Pamfletes'][i],kind:'house',x:p[0],y:p[1],w:4,h:4,door:1,style:HSTY[i],roof:i%2?'terra':'slate',forSale:i===1?420:undefined}));
+ fillR(z,2,36,16,7,T.FARM,true);fillR(z,26,38,16,5,T.FARM,true);
+ plot(z,'pn_p1',20,36,6,5,280,'Vinya del Camí Ral',0);plot(z,'pn_p2',27,38,8,5,240,'Terrenys de la Riera',0);
+ for(let i=0;i<4;i++)stall(z,'pnst'+i,[16.5,19.5,24.5,27.5][i],17.5);
+ [[16,16],[27,16],[16,24],[27,24],[21,10],[21,30],[8,21],[36,21]].forEach(p=>prop(z,'lamp',p[0]+.5,p[1]+.5));
+ prop(z,'fountain',21.5,20.5,{solid:1,deco:1});prop(z,'well',12.5,26.5,{solid:1});
+ [[20,13],[26,13],[34,27],[9,32],[13,38]].forEach(p=>prop(z,'barrel',p[0]+.5,p[1]+.5,{solid:1}));[[24,14],[18,34]].forEach(p=>prop(z,'cart',p[0]+.5,p[1]+.5,{}));prop(z,'bench',20.5,23.5,{});prop(z,'bench',23.5,23.5,{});
+ for(let i=0;i<10;i++)prop(z,'flowers',[3,12,18,26,32,38,5,24,40,10][i]+.5,[12,13,22,12,26,18,34,34,28,30][i]+.5,{v:i});
+ exitR(z,20,0,4,1,'martorell',21.5,37.5);exitR(z,43,20,1,4,'garraf',2.5,22);
+ z.arrive={martorell:{x:21.5,y:2.5},garraf:{x:41.5,y:22}};z.spawn={x:21.5,y:2.5};
+ z.spots={plaza:{x:22,y:20},market:{x:21,y:18},patrol:[[22,3],[22,20],[36,21],[8,21],[22,34]],beggar:[[17,23],[26,24]]};
+};
+// ---------- EGARA ----------
+ZONE_BUILD.egara=function(z){
+ floorR(z,15,17,12,9,T.COBBLE);waterR(z,3,28,12,2);waterR(z,14,29,2,8);waterR(z,12,36,4,2);
+ roadPoly(z,[[0,22],[15,22]],2,T.PATH);roadPoly(z,[[27,22],[43,22]],2,T.PATH);roadPoly(z,[[21,17],[21,9]],2,T.PATH);roadPoly(z,[[21,9],[33,9]],2,T.PATH);roadPoly(z,[[21,9],[9,9]],2,T.PATH);roadPoly(z,[[21,26],[21,40]],2,T.PATH);roadPoly(z,[[21,34],[34,34]],2,T.PATH);
+ bld(z,{id:'ayto_eg',name:'Casa de la Vila d\'Egara',kind:'ayuntamiento',x:14,y:4,w:7,h:5,door:3,style:'stone',roof:'slate',floors:2,fac:'concejo'});
+ bld(z,{id:'seu_eg',name:'Santa Maria d\'Egara',kind:'temple',x:30,y:3,w:6,h:6,door:2,style:'stone',roof:'terra',floors:3,tall:1});
+ bld(z,{id:'spere_eg',name:'Sant Pere d\'Egara',kind:'chapel',x:37,y:4,w:4,h:4,door:2,style:'stone',roof:'terra'});
+ bld(z,{id:'smiquel_eg',name:'Sant Miquel d\'Egara (cripta)',kind:'chapel',x:33,y:11,w:4,h:4,door:2,style:'dark',roof:'slate'});
+ bld(z,{id:'gremio_eg',name:'Gremio de los Pelaires',kind:'shop',x:28,y:17,w:6,h:5,door:2,style:'ochre',roof:'terra',floors:2,shop:'general',fac:'artesanos'});
+ bld(z,{id:'posada_eg',name:'Posada de la Llana',kind:'inn',x:6,y:16,w:7,h:5,door:3,style:'timber',roof:'terra',floors:2,shop:'inn',rent:6});
+ bld(z,{id:'forja_eg',name:'Herrería de los Lanzaderos',kind:'smith',x:5,y:23,w:5,h:4,door:2,style:'brick',roof:'slate',shop:'smith',fac:'artesanos',st:['forge']});
+ bld(z,{id:'forn_eg',name:'Forn d\'Egara',kind:'bakery',x:29,y:23,w:4,h:4,door:1,style:'white',roof:'terra',prod:'bakery',shop:'bread',st:['kitchen']});
+ bld(z,{id:'botica_eg',name:'Botica del Torrent',kind:'apothecary',x:35,y:23,w:4,h:4,door:2,style:'white',roof:'terra',shop:'apo',st:['alchemy']});
+ bld(z,{id:'molino_eg',name:'Molí del Torrent',kind:'mill',x:17,y:32,w:4,h:4,door:1,style:'stone',roof:'thatch',prod:'mill'});
+ bld(z,{id:'granja_eg',name:'Masía Freixa',kind:'farm',x:5,y:36,w:6,h:5,door:2,style:'ochre',roof:'terra',prod:'farm',floors:2,shop:'farm'});
+ bld(z,{id:'cuartel_eg',name:'Cuartel de la Vila',kind:'barracks',x:35,y:30,w:5,h:4,door:2,style:'stone',roof:'slate'});
+ bld(z,{id:'torre_eg',name:'Torre del Palau',kind:'landmark',x:7,y:5,w:4,h:4,style:'dark',roof:'goth',floors:6,tall:2});
+ [[22,29],[26,32],[30,36],[22,36],[36,16],[10,10]].forEach((p,i)=>bld(z,{id:'casa_eg'+(i+1),name:['Casa del Telar','Casa dels Pelaires','Casa de la Llançadora','Casa del Torrent','Casa de l\'Escardador','Casa de la Fil'][i],kind:'house',x:p[0],y:p[1],w:4,h:4,door:1,style:HSTY[i],roof:i%2?'terra':'slate',forSale:i===4?360:undefined}));
+ plot(z,'eg_p1',24,38,8,5,200,'Prados del Vallparadís',0);
+ for(let i=0;i<3;i++)stall(z,'egst'+i,[17.5,20.5,23.5][i],19.5);
+ [[16,18],[26,18],[16,24],[26,24],[21,12],[21,30],[9,22],[36,22]].forEach(p=>prop(z,'lamp',p[0]+.5,p[1]+.5));
+ prop(z,'fountain',21.5,21.5,{solid:1,deco:1});prop(z,'well',11.5,27.5,{solid:1});
+ [[19,19],[24,25],[31,15],[8,28]].forEach(p=>prop(z,'barrel',p[0]+.5,p[1]+.5,{solid:1}));[[28,28],[14,14]].forEach(p=>prop(z,'cart',p[0]+.5,p[1]+.5,{}));prop(z,'haystack',4.5,34.5,{solid:1});
+ for(let i=0;i<10;i++)prop(z,'flowers',[3,12,18,26,32,38,5,24,40,10][i]+.5,[12,13,26,12,27,20,32,40,10,32][i]+.5,{v:i});
+ exitR(z,0,20,1,4,'sant_cugat',41.5,22.5);exitR(z,43,20,1,4,'cam_collbato',2.5,22);
+ z.arrive={sant_cugat:{x:2.5,y:22},cam_collbato:{x:41.5,y:22}};z.spawn={x:2.5,y:22};
+ z.spots={plaza:{x:21,y:21},market:{x:20.5,y:19.5},patrol:[[3,22],[21,22],[40,22],[21,34]],beggar:[[18,24],[25,19]]};
+};
